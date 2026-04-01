@@ -94,6 +94,21 @@
         "joinedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "role"]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "A 1-to-1 direct message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chatId", "authorId", "authorName", "authorPhoto", "content", "timestamp"]
     }
   },
   "firestore": {
@@ -128,6 +143,10 @@
     "/servers/{serverId}/channels/{channelId}/participants/{participantId}": {
       "schema": "UserProfile",
       "description": "Active participants in a voice/video call"
+    },
+    "/direct_messages/{chatId}/messages/{messageId}": {
+      "schema": "DirectMessage",
+      "description": "Messages in a 1-to-1 chat"
     }
   }
 }

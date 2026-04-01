@@ -58,3 +58,13 @@ export interface ServerMember {
   role: 'owner' | 'admin' | 'member';
   joinedAt: string;
 }
+
+export interface DirectMessage {
+  id: string;
+  chatId: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto: string;
+  content: string;
+  timestamp: any;
+}

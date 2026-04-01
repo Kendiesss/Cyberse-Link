@@ -6,7 +6,7 @@ import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, U
 import { cn } from './lib/utils';
 import { format } from 'date-fns';
 import { askAI, summarizeConversation } from './services/geminiService';
-import type { Server, Channel, Message, UserProfile, FriendRequest, Friendship, ServerMember } from './types';
+import type { Server, Channel, Message, UserProfile, FriendRequest, Friendship, ServerMember, DirectMessage } from './types';
 import Markdown from 'react-markdown';
 import { io } from 'socket.io-client';
 
@@ -20,10 +20,15 @@ export default function App() {
   const [started, setStarted] = useState(false);
   const [activeServer, setActiveServer] = useState<Server | null>(null);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
+  const [activeDM, setActiveDM] = useState<UserProfile | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [dmMessages, setDmMessages] = useState<DirectMessage[]>([]);
   const [isAIThinking, setIsAIThinking] = useState(false);
+  
+  // Voice Participants State
+  const [voiceParticipants, setVoiceParticipants] = useState<{ [channelId: string]: UserProfile[] }>({});
   
   // Friends State
   const [friends, setFriends] = useState<Friendship[]>([]);
@@ -152,6 +157,42 @@ export default function App() {
     return unsubscribe;
   }, [activeServer]);
 
+  // Fetch DM Messages
+  useEffect(() => {
+    if (!user || !activeDM) {
+      setDmMessages([]);
+      return;
+    }
+    const chatId = [user.uid, activeDM.uid].sort().join('_');
+    const q = query(
+      collection(db, `direct_messages/${chatId}/messages`),
+      orderBy('timestamp', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const m = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DirectMessage));
+      setDmMessages(m);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `direct_messages/${chatId}/messages`));
+    return unsubscribe;
+  }, [user, activeDM]);
+
+  // Global Voice Participants Listener
+  useEffect(() => {
+    if (!user || !activeServer) return;
+    
+    const unsubscribes: (() => void)[] = [];
+    
+    channels.filter(c => c.type === 'voice').forEach(channel => {
+      const q = collection(db, `servers/${activeServer.id}/channels/${channel.id}/participants`);
+      const unsub = onSnapshot(q, (snapshot) => {
+        const participants = snapshot.docs.map(doc => doc.data() as UserProfile);
+        setVoiceParticipants(prev => ({ ...prev, [channel.id]: participants }));
+      });
+      unsubscribes.push(unsub);
+    });
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [user, activeServer, channels]);
+
   const handleSendMessage = async (content: string) => {
     if (!user || !activeServer || !activeChannel || !content.trim()) return;
     
@@ -189,6 +230,26 @@ export default function App() {
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`);
+    }
+  };
+
+  const handleSendDM = async (content: string) => {
+    if (!user || !activeDM || !content.trim()) return;
+    
+    const chatId = [user.uid, activeDM.uid].sort().join('_');
+    const messageData = {
+      chatId,
+      authorId: user.uid,
+      authorName: user.displayName,
+      authorPhoto: user.photoURL,
+      content: content.trim(),
+      timestamp: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, `direct_messages/${chatId}/messages`), messageData);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `direct_messages/${chatId}/messages`);
     }
   };
 
@@ -438,10 +499,17 @@ export default function App() {
           {showFriendsView ? (
             <div className="space-y-2">
               <button 
-                onClick={() => {}} 
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)] border border-cyberse-glow/20"
+                onClick={() => {
+                  setActiveServer(null);
+                  setActiveChannel(null);
+                  setActiveDM(null);
+                }} 
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all group",
+                  (!activeServer && !activeDM) ? "bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)] border border-cyberse-glow/20" : "text-cyberse-muted hover:bg-white/5 hover:text-white"
+                )}
               >
-                <Users size={20} className="text-cyberse-glow" />
+                <Users size={20} className={(!activeServer && !activeDM) ? "text-cyberse-glow" : "group-hover:text-cyberse-glow transition-colors"} />
                 <span className="font-medium text-sm">Friends</span>
               </button>
               <button 
@@ -467,7 +535,11 @@ export default function App() {
                       key={channel.id}
                       channel={channel}
                       active={activeChannel?.id === channel.id}
-                      onClick={() => setActiveChannel(channel)}
+                      onClick={() => {
+                        setActiveChannel(channel);
+                        setActiveDM(null);
+                      }}
+                      participants={voiceParticipants[channel.id] || []}
                     />
                   ))}
                 </div>
@@ -634,7 +706,11 @@ export default function App() {
                     </h3>
                     <div className="space-y-2">
                       {friends.map(friend => (
-                        <div key={friend.friendId} className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all">
+                        <div 
+                          key={friend.friendId} 
+                          onClick={() => setActiveDM({ uid: friend.friendId, displayName: friend.friendName, photoURL: friend.friendPhoto } as UserProfile)}
+                          className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all cursor-pointer"
+                        >
                           <div className="flex items-center gap-3">
                             <div className="relative">
                               <img src={friend.friendPhoto} className="w-10 h-10 rounded-xl border border-white/10" referrerPolicy="no-referrer" />
@@ -643,7 +719,13 @@ export default function App() {
                             <p className="font-bold text-white">{friend.friendName}</p>
                           </div>
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="p-2 bg-white/5 rounded-lg text-cyberse-muted hover:text-cyberse-glow hover:bg-white/10 transition-all">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveDM({ uid: friend.friendId, displayName: friend.friendName, photoURL: friend.friendPhoto } as UserProfile);
+                              }}
+                              className="p-2 bg-white/5 rounded-lg text-cyberse-muted hover:text-cyberse-glow hover:bg-white/10 transition-all"
+                            >
                               <MessageSquare size={20} />
                             </button>
                             <button className="p-2 bg-white/5 rounded-lg text-cyberse-muted hover:text-cyberse-glow hover:bg-white/10 transition-all">
@@ -661,6 +743,21 @@ export default function App() {
                   </section>
                 )}
               </div>
+            </motion.div>
+          ) : activeDM ? (
+            <motion.div 
+              key={activeDM.uid}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex flex-col min-h-0"
+            >
+              <PrivateChat 
+                friend={activeDM} 
+                messages={dmMessages} 
+                onSendMessage={handleSendDM} 
+              />
             </motion.div>
           ) : activeChannel ? (
             <motion.div 
@@ -950,26 +1047,102 @@ function ServerIcon({ name, active, onClick, icon, image, className, badge }: an
   );
 }
 
-function ChannelItem({ channel, active, onClick }: any) {
+function ChannelItem({ channel, active, onClick, participants = [] }: any) {
   return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all group relative overflow-hidden",
-        active 
-          ? "bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)]" 
-          : "text-cyberse-muted hover:bg-white/5 hover:text-white"
+    <div className="space-y-1">
+      <button 
+        onClick={onClick}
+        className={cn(
+          "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all group relative overflow-hidden",
+          active 
+            ? "bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)]" 
+            : "text-cyberse-muted hover:bg-white/5 hover:text-white"
+        )}
+      >
+        {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyberse-glow shadow-[0_0_10px_rgba(0,242,255,0.5)]" />}
+        {channel.type === 'text' ? (
+          <Hash size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
+        ) : (
+          <Volume2 size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
+        )}
+        <span className="font-medium truncate text-sm">{channel.name}</span>
+        {active && <div className="ml-auto w-1.5 h-1.5 bg-cyberse-glow rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />}
+      </button>
+      
+      {channel.type === 'voice' && participants.length > 0 && (
+        <div className="ml-6 space-y-1 pb-1">
+          {participants.map((p: any) => (
+            <div key={p.uid} className="flex items-center gap-2 px-2 py-0.5 rounded hover:bg-white/5 transition-all group">
+              <img src={p.photoURL} className="w-4 h-4 rounded border border-white/10" />
+              <span className="text-xs text-cyberse-muted group-hover:text-white truncate">{p.displayName}</span>
+            </div>
+          ))}
+        </div>
       )}
-    >
-      {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyberse-glow shadow-[0_0_10px_rgba(0,242,255,0.5)]" />}
-      {channel.type === 'text' ? (
-        <Hash size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
-      ) : (
-        <Volume2 size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
-      )}
-      <span className="font-medium truncate text-sm">{channel.name}</span>
-      {active && <div className="ml-auto w-1.5 h-1.5 bg-cyberse-glow rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />}
-    </button>
+    </div>
+  );
+}
+
+function PrivateChat({ friend, messages, onSendMessage }: any) {
+  const [input, setInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    onSendMessage(input);
+    setInput('');
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 bg-cyberse-bg/50 backdrop-blur-sm">
+      <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <img src={friend.photoURL || friend.friendPhoto} className="w-8 h-8 rounded-xl border border-white/10" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-cyberse-glow border-2 border-cyberse-bg rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />
+          </div>
+          <h2 className="font-bold text-white">{friend.displayName || friend.friendName}</h2>
+        </div>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+        {messages.map((msg: DirectMessage) => (
+          <div key={msg.id} className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-cyberse-muted">
+                  {msg.timestamp?.toDate ? format(msg.timestamp.toDate(), 'HH:mm') : 'Just now'}
+                </span>
+              </div>
+              <div className="text-cyberse-text leading-relaxed break-words markdown-body">
+                <Markdown>{msg.content}</Markdown>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-4">
+        <div className="bg-cyberse-dark/60 backdrop-blur-md rounded-2xl px-4 py-2 flex items-center gap-3 border border-white/10 shadow-lg focus-within:border-cyberse-glow/50 transition-all">
+          <input 
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={`Message @${friend.displayName || friend.friendName}`}
+            className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-cyberse-muted py-2"
+          />
+          <button type="submit" className="text-cyberse-glow hover:scale-110 active:scale-95 disabled:opacity-50 transition-all" disabled={!input.trim()}>
+            <Send size={20} />
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -1058,6 +1231,31 @@ function VoiceCall({ channel, user, serverId }: any) {
   const peerConnections = useRef<{ [key: string]: RTCPeerConnection }>({});
   const remoteStreams = useRef<{ [key: string]: MediaStream }>({});
   const [remoteStreamsState, setRemoteStreamsState] = useState<{ [key: string]: MediaStream }>({});
+
+  useEffect(() => {
+    if (!inCall || !user || !serverId || !channel) return;
+
+    const participantRef = doc(db, `servers/${serverId}/channels/${channel.id}/participants`, user.uid);
+    
+    const joinVoice = async () => {
+      try {
+        await setDoc(participantRef, {
+          uid: user.uid,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          joinedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Error joining voice room:", err);
+      }
+    };
+
+    joinVoice();
+
+    return () => {
+      deleteDoc(participantRef).catch(console.error);
+    };
+  }, [inCall, user, serverId, channel]);
 
   useEffect(() => {
     if (!inCall) return;

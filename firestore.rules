@@ -111,5 +111,14 @@ service cloud.firestore {
         }
       }
     }
+
+    match /direct_messages/{chatId} {
+      allow read: if isAuthenticated() && chatId.contains(request.auth.uid);
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && chatId.contains(request.auth.uid);
+        allow create: if isAuthenticated() && chatId.contains(request.auth.uid) && request.resource.data.authorId == request.auth.uid;
+      }
+    }
   }
 }
