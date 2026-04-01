@@ -12,6 +12,7 @@ export interface Server {
   name: string;
   ownerId: string;
   iconURL?: string;
+  image?: string;
   createdAt: string;
 }
 

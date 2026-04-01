@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, loginWithGoogle, logout, OperationType, handleFirestoreError } from './firebase';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where, deleteDoc } from 'firebase/firestore';
-import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff, Users, UserPlus, Check, X, Search, Mail } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where, deleteDoc, updateDoc } from 'firebase/firestore';
+import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff, Users, UserPlus, Check, X, Search, Mail, Globe, Shield, Lock, Loader2 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { format } from 'date-fns';
 import { askAI, summarizeConversation } from './services/geminiService';
 import type { Server, Channel, Message, UserProfile, FriendRequest, Friendship, ServerMember } from './types';
 import Markdown from 'react-markdown';
+import { io } from 'socket.io-client';
 
 import { AnimatePresence, motion } from 'motion/react';
+
+const socket = io();
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -27,6 +30,13 @@ export default function App() {
   const [showFriendsView, setShowFriendsView] = useState(false);
   const [searchEmail, setSearchEmail] = useState('');
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  
+  // Modal States
+  const [showCreateServer, setShowCreateServer] = useState(false);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [showInviteFriends, setShowInviteFriends] = useState(false);
+  const [friendsFilter, setFriendsFilter] = useState<'online' | 'all' | 'pending'>('all');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -141,63 +151,6 @@ export default function App() {
     return unsubscribe;
   }, [activeServer]);
 
-  const handleCreateServer = async () => {
-    if (!user) return;
-    const name = prompt('Enter server name:');
-    if (!name) return;
-    try {
-      const serverRef = doc(collection(db, 'servers'));
-      const serverData: Server = {
-        id: serverRef.id,
-        name,
-        ownerId: user.uid,
-        createdAt: new Date().toISOString()
-      };
-      await setDoc(serverRef, serverData);
-      
-      // Add owner as member
-      await setDoc(doc(db, `servers/${serverRef.id}/members`, user.uid), {
-        uid: user.uid,
-        role: 'owner',
-        joinedAt: new Date().toISOString()
-      });
-
-      // Create default channel
-      const channelRef = doc(collection(db, `servers/${serverRef.id}/channels`));
-      await setDoc(channelRef, {
-        id: channelRef.id,
-        serverId: serverRef.id,
-        name: 'general',
-        type: 'text',
-        createdAt: new Date().toISOString()
-      });
-      
-      setActiveServer(serverData);
-      setShowFriendsView(false);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'servers');
-    }
-  };
-
-  const handleCreateChannel = async () => {
-    if (!user || !activeServer) return;
-    const name = prompt('Enter channel name:');
-    if (!name) return;
-    const type = confirm('Is this a voice channel?') ? 'voice' : 'text';
-    try {
-      const channelRef = doc(collection(db, `servers/${activeServer.id}/channels`));
-      await setDoc(channelRef, {
-        id: channelRef.id,
-        serverId: activeServer.id,
-        name: name.toLowerCase().replace(/\s+/g, '-'),
-        type,
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `servers/${activeServer.id}/channels`);
-    }
-  };
-
   const handleSendMessage = async (content: string) => {
     if (!user || !activeServer || !activeChannel || !content.trim()) return;
     
@@ -256,11 +209,10 @@ export default function App() {
     setIsAIThinking(false);
   };
 
-  const handleSearchUsers = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchEmail.trim()) return;
+  const searchUsers = async (email: string) => {
+    if (!email.trim()) return;
     try {
-      const q = query(collection(db, 'users'), where('email', '==', searchEmail.trim()));
+      const q = query(collection(db, 'users'), where('email', '==', email.trim()));
       const snapshot = await getDocs(q);
       setSearchResults(snapshot.docs.map(doc => doc.data() as UserProfile).filter(u => u.uid !== user?.uid));
     } catch (err) {
@@ -362,6 +314,63 @@ export default function App() {
     }
   };
 
+  const createServer = async (name: string, image: string) => {
+    if (!user || !name.trim()) return;
+    try {
+      const serverRef = doc(collection(db, 'servers'));
+      const serverData: Server = {
+        id: serverRef.id,
+        name: name.trim(),
+        image: image.trim() || `https://api.dicebear.com/7.x/initials/svg?seed=${name}`,
+        ownerId: user.uid,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(serverRef, serverData);
+      
+      // Add creator as owner member
+      await setDoc(doc(db, `servers/${serverRef.id}/members`, user.uid), {
+        uid: user.uid,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        role: 'owner',
+        joinedAt: new Date().toISOString()
+      });
+
+      // Create default general channel
+      const channelRef = doc(collection(db, `servers/${serverRef.id}/channels`));
+      await setDoc(channelRef, {
+        id: channelRef.id,
+        serverId: serverRef.id,
+        name: 'general',
+        type: 'text',
+        createdAt: new Date().toISOString()
+      });
+
+      setActiveServer(serverData);
+      setShowFriendsView(false);
+      setShowCreateServer(false);
+    } catch (err) {
+      console.error('Create server error:', err);
+    }
+  };
+
+  const createChannel = async (name: string, type: 'text' | 'voice') => {
+    if (!activeServer || !name.trim()) return;
+    try {
+      const channelRef = doc(collection(db, `servers/${activeServer.id}/channels`));
+      await setDoc(channelRef, {
+        id: channelRef.id,
+        serverId: activeServer.id,
+        name: name.trim().toLowerCase().replace(/\s+/g, '-'),
+        type,
+        createdAt: new Date().toISOString()
+      });
+      setShowCreateChannel(false);
+    } catch (err) {
+      console.error('Create channel error:', err);
+    }
+  };
+
   if (loading) return <div className="h-screen w-full flex items-center justify-center bg-discord-darkest text-white">Loading...</div>;
 
   if (!user) return <LoginScreen onLogin={loginWithGoogle} />;
@@ -379,6 +388,7 @@ export default function App() {
           }} 
           icon={<Users size={28} />}
           className={showFriendsView ? "bg-discord-blurple text-white" : ""}
+          badge={friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length}
         />
         <div className="w-8 h-[2px] bg-discord-dark rounded-full my-1" />
         {servers.map(server => (
@@ -390,12 +400,12 @@ export default function App() {
               setActiveServer(server);
               setShowFriendsView(false);
             }}
-            image={server.iconURL}
+            image={server.image}
           />
         ))}
         <ServerIcon 
           name="Add Server" 
-          onClick={handleCreateServer} 
+          onClick={() => setShowCreateServer(true)} 
           icon={<Plus size={28} />}
           className="text-discord-green hover:bg-discord-green hover:text-white"
         />
@@ -417,13 +427,20 @@ export default function App() {
                 <Users size={20} />
                 <span className="font-medium">Friends</span>
               </button>
+              <button 
+                onClick={() => setShowAddFriend(true)} 
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-discord-muted hover:bg-discord-dark hover:text-discord-text transition-all"
+              >
+                <UserPlus size={20} />
+                <span className="font-medium">Add Friend</span>
+              </button>
             </div>
           ) : activeServer && (
             <>
               <div>
                 <div className="flex items-center justify-between px-2 mb-1 group">
                   <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
-                  <button onClick={handleCreateChannel} className="text-discord-muted hover:text-discord-text transition-colors">
+                  <button onClick={() => setShowCreateChannel(true)} className="text-discord-muted hover:text-discord-text transition-colors">
                     <Plus size={14} />
                   </button>
                 </div>
@@ -442,7 +459,7 @@ export default function App() {
               <div className="mt-6">
                 <div className="flex items-center justify-between px-2 mb-1 group">
                   <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Members — {serverMembers.length}</span>
-                  <button onClick={addMemberByEmail} className="text-discord-muted hover:text-discord-text transition-colors" title="Add Member by Email">
+                  <button onClick={() => setShowInviteFriends(true)} className="text-discord-muted hover:text-discord-text transition-colors" title="Invite Friends">
                     <UserPlus size={14} />
                   </button>
                 </div>
@@ -491,111 +508,129 @@ export default function App() {
                   <Users size={24} className="text-discord-muted" />
                   <h2 className="font-bold">Friends</h2>
                 </div>
+                <div className="flex gap-4 text-sm font-medium">
+                  <button 
+                    onClick={() => setFriendsFilter('online')}
+                    className={cn(friendsFilter === 'online' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                  >
+                    Online
+                  </button>
+                  <button 
+                    onClick={() => setFriendsFilter('all')}
+                    className={cn(friendsFilter === 'all' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                  >
+                    All
+                  </button>
+                  <button 
+                    onClick={() => setFriendsFilter('pending')}
+                    className={cn(friendsFilter === 'pending' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                  >
+                    Pending
+                    {friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length > 0 && (
+                      <span className="ml-1 bg-red-500 text-white text-[10px] px-1 rounded-full">
+                        {friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length}
+                      </span>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => setShowAddFriend(true)}
+                    className="bg-discord-green text-white px-2 py-0.5 rounded hover:bg-opacity-90 transition-all"
+                  >
+                    Add Friend
+                  </button>
+                </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                {/* Search Section */}
-                <section>
-                  <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Add Friend</h3>
-                  <form onSubmit={handleSearchUsers} className="flex gap-2">
-                    <div className="flex-1 bg-discord-darker rounded px-4 py-2 flex items-center gap-2">
-                      <Mail size={18} className="text-discord-muted" />
-                      <input 
-                        value={searchEmail}
-                        onChange={(e) => setSearchEmail(e.target.value)}
-                        placeholder="Enter email to search..."
-                        className="bg-transparent border-none outline-none text-discord-text w-full"
-                      />
-                    </div>
-                    <button type="submit" className="bg-discord-blurple px-4 py-2 rounded font-bold hover:bg-opacity-90 transition-all">
-                      Search
-                    </button>
-                  </form>
-                  
-                  {searchResults.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      {searchResults.map(res => (
-                        <div key={res.uid} className="bg-discord-darker p-3 rounded flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <img src={res.photoURL} className="w-10 h-10 rounded-full" />
-                            <div>
-                              <p className="font-bold">{res.displayName}</p>
-                              <p className="text-xs text-discord-muted">{res.email}</p>
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => sendFriendRequest(res)}
-                            className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all"
-                          >
-                            <UserPlus size={20} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                {/* Requests Section */}
-                {friendRequests.filter(r => r.status === 'pending').length > 0 && (
+              <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                {friendsFilter === 'pending' ? (
                   <section>
                     <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Pending Requests</h3>
                     <div className="space-y-2">
                       {friendRequests.filter(r => r.status === 'pending').map(req => (
-                        <div key={req.id} className="bg-discord-darker p-3 rounded flex items-center justify-between">
+                        <div key={req.id} className="bg-discord-darker p-3 rounded flex items-center justify-between group hover:bg-discord-dark transition-all">
                           <div className="flex items-center gap-3">
-                            <img src={req.fromId === user.uid ? 'https://api.dicebear.com/7.x/avataaars/svg?seed=sent' : req.fromPhoto} className="w-10 h-10 rounded-full" />
+                            <img 
+                              src={req.fromId === user.uid ? 'https://api.dicebear.com/7.x/initials/svg?seed=' + req.toId : req.fromPhoto} 
+                              className="w-10 h-10 rounded-full" 
+                              referrerPolicy="no-referrer"
+                            />
                             <div>
-                              <p className="font-bold">{req.fromId === user.uid ? `Sent to ${req.toId.substring(0, 5)}...` : req.fromName}</p>
-                              <p className="text-xs text-discord-muted">{req.fromId === user.uid ? 'Outgoing' : 'Incoming'}</p>
+                              <p className="font-bold">
+                                {req.fromId === user.uid ? `Request to ${req.toId.substring(0, 8)}` : req.fromName}
+                              </p>
+                              <p className="text-xs text-discord-muted">
+                                {req.fromId === user.uid ? 'Outgoing Friend Request' : 'Incoming Friend Request'}
+                              </p>
                             </div>
                           </div>
-                          {req.fromId !== user.uid && (
-                            <div className="flex gap-2">
-                              <button 
-                                onClick={() => acceptFriendRequest(req)}
-                                className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
-                                title="Accept"
-                              >
-                                <Check size={20} />
-                              </button>
+                          <div className="flex gap-2">
+                            {req.fromId !== user.uid ? (
+                              <>
+                                <button 
+                                  onClick={() => acceptFriendRequest(req)}
+                                  className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg"
+                                  title="Accept"
+                                >
+                                  <Check size={20} />
+                                </button>
+                                <button 
+                                  onClick={() => rejectFriendRequest(req)}
+                                  className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg"
+                                  title="Decline"
+                                >
+                                  <X size={20} />
+                                </button>
+                              </>
+                            ) : (
                               <button 
                                 onClick={() => rejectFriendRequest(req)}
-                                className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
-                                title="Decline"
+                                className="p-2 text-discord-muted hover:text-red-500 transition-all"
+                                title="Cancel Request"
                               >
                                 <X size={20} />
                               </button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       ))}
+                      {friendRequests.filter(r => r.status === 'pending').length === 0 && (
+                        <p className="text-center py-8 text-discord-muted italic">No pending requests.</p>
+                      )}
+                    </div>
+                  </section>
+                ) : (
+                  <section>
+                    <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">
+                      {friendsFilter === 'online' ? 'Online Friends' : 'All Friends'} — {friends.length}
+                    </h3>
+                    <div className="space-y-2">
+                      {friends.map(friend => (
+                        <div key={friend.friendId} className="bg-discord-darker p-3 rounded flex items-center justify-between group hover:bg-discord-dark transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <img src={friend.friendPhoto} className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-discord-green border-2 border-discord-darker rounded-full" />
+                            </div>
+                            <p className="font-bold">{friend.friendName}</p>
+                          </div>
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button className="p-2 bg-discord-darkest rounded-full text-discord-muted hover:text-discord-text hover:bg-discord-dark transition-all">
+                              <MessageSquare size={20} />
+                            </button>
+                            <button className="p-2 bg-discord-darkest rounded-full text-discord-muted hover:text-discord-text hover:bg-discord-dark transition-all">
+                              <Settings size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {friends.length === 0 && (
+                        <div className="text-center py-8 text-discord-muted">
+                          <p>No friends found. Start by searching for users!</p>
+                        </div>
+                      )}
                     </div>
                   </section>
                 )}
-
-                {/* Friends List */}
-                <section>
-                  <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">All Friends — {friends.length}</h3>
-                  <div className="space-y-2">
-                    {friends.map(friend => (
-                      <div key={friend.friendId} className="bg-discord-darker p-3 rounded flex items-center justify-between group">
-                        <div className="flex items-center gap-3">
-                          <img src={friend.friendPhoto} className="w-10 h-10 rounded-full" />
-                          <p className="font-bold">{friend.friendName}</p>
-                        </div>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="p-2 text-discord-muted hover:text-discord-text"><MessageSquare size={20} /></button>
-                          <button className="p-2 text-discord-muted hover:text-discord-text"><Settings size={20} /></button>
-                        </div>
-                      </div>
-                    ))}
-                    {friends.length === 0 && (
-                      <div className="text-center py-8 text-discord-muted">
-                        <p>No friends yet. Start by searching for users!</p>
-                      </div>
-                    )}
-                  </div>
-                </section>
               </div>
             </motion.div>
           ) : activeChannel ? (
@@ -649,7 +684,67 @@ export default function App() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Modals */}
+      <CreateServerModal 
+        isOpen={showCreateServer} 
+        onClose={() => setShowCreateServer(false)} 
+        onCreate={createServer} 
+      />
+      <CreateChannelModal 
+        isOpen={showCreateChannel} 
+        onClose={() => setShowCreateChannel(false)} 
+        onCreate={createChannel} 
+      />
+      <AddFriendModal 
+        isOpen={showAddFriend} 
+        onClose={() => setShowAddFriend(false)} 
+        onSearch={searchUsers}
+        searchResults={searchResults}
+        onAdd={sendFriendRequest}
+      />
+      <InviteFriendsModal 
+        isOpen={showInviteFriends} 
+        onClose={() => setShowInviteFriends(false)} 
+        friends={friends}
+        onInvite={inviteToChannel}
+      />
     </div>
+  );
+}
+
+function InviteFriendsModal({ isOpen, onClose, friends, onInvite }: any) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Invite Friends to Server">
+      <p className="text-discord-muted mb-6">Select friends to invite them to this server.</p>
+      <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+        {friends.map((friend: Friendship) => (
+          <div key={friend.friendId} className="bg-discord-darkest p-3 rounded flex items-center justify-between group hover:bg-discord-darker transition-all">
+            <div className="flex items-center gap-3">
+              <img src={friend.friendPhoto} className="w-10 h-10 rounded-full border-2 border-transparent group-hover:border-discord-blurple transition-all" referrerPolicy="no-referrer" />
+              <div>
+                <p className="font-bold">{friend.friendName}</p>
+                <p className="text-xs text-discord-muted">Friend</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                onInvite(friend);
+                onClose();
+              }}
+              className="bg-discord-green text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-opacity-90 transition-all"
+            >
+              Invite
+            </button>
+          </div>
+        ))}
+        {friends.length === 0 && (
+          <div className="text-center py-8 text-discord-muted">
+            <p>No friends to invite. Add some friends first!</p>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -710,7 +805,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function ServerIcon({ name, active, onClick, icon, image, className }: any) {
+function ServerIcon({ name, active, onClick, icon, image, className, badge }: any) {
   return (
     <div className="relative group flex items-center justify-center w-full">
       <div className={cn(
@@ -721,12 +816,17 @@ function ServerIcon({ name, active, onClick, icon, image, className }: any) {
         onClick={onClick}
         title={name}
         className={cn(
-          "w-12 h-12 flex items-center justify-center transition-all duration-200 overflow-hidden",
+          "w-12 h-12 flex items-center justify-center transition-all duration-200 overflow-hidden relative",
           active ? "rounded-[16px] bg-discord-blurple text-white" : "rounded-[24px] bg-discord-dark hover:rounded-[16px] hover:bg-discord-blurple text-discord-text hover:text-white",
           className
         )}
       >
         {image ? <img src={image} className="w-full h-full object-cover" /> : icon || name[0]}
+        {badge > 0 && (
+          <div className="absolute -bottom-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-discord-darkest shadow-lg">
+            {badge}
+          </div>
+        )}
       </button>
     </div>
   );
@@ -824,34 +924,149 @@ function VoiceCall({ channel, user, serverId }: any) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [inCall, setInCall] = useState(false);
-  const [participants, setParticipants] = useState<UserProfile[]>([]);
+  const [participants, setParticipants] = useState<any[]>([]);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peerConnections = useRef<{ [key: string]: RTCPeerConnection }>({});
+  const remoteStreams = useRef<{ [key: string]: MediaStream }>({});
+  const [remoteStreamsState, setRemoteStreamsState] = useState<{ [key: string]: MediaStream }>({});
 
   useEffect(() => {
     if (!inCall) return;
 
-    const participantRef = doc(db, `servers/${serverId}/channels/${channel.id}/participants`, user.uid);
-    
-    const joinCall = async () => {
-      await setDoc(participantRef, {
-        uid: user.uid,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        joinedAt: serverTimestamp()
-      });
+    const startLocalStream = async () => {
+      try {
+        console.log("Requesting media devices...");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: true
+        }).catch(async (err) => {
+          console.warn("Could not get video, falling back to audio only:", err);
+          return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        });
+        
+        console.log("Local stream obtained:", stream.id);
+        localStreamRef.current = stream;
+        stream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+        stream.getVideoTracks().forEach(t => t.enabled = isVideoOn);
+        
+        setRemoteStreamsState(prev => ({ ...prev, [user.uid]: stream }));
+
+        // Join room ONLY after local stream is ready
+        const roomId = `${serverId}-${channel.id}`;
+        socket.emit("join-room", roomId, user.uid);
+      } catch (err) {
+        console.error("Error accessing media devices:", err);
+        alert("Could not access microphone or camera. Please check your permissions.");
+      }
     };
 
-    joinCall();
+    if (inCall) {
+      startLocalStream();
+    }
+
+    const createPeerConnection = (targetSocketId: string, targetUserId: string) => {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("ice-candidate", {
+            target: targetSocketId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log(`Received remote track from ${targetUserId}:`, event.track.kind);
+        const stream = event.streams[0];
+        if (stream) {
+          remoteStreams.current[targetUserId] = stream;
+          setRemoteStreamsState(prev => ({ ...prev, [targetUserId]: stream }));
+        }
+      };
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      peerConnections.current[targetSocketId] = pc;
+      return pc;
+    };
+
+    socket.on("user-joined", async (userId, socketId) => {
+      const pc = createPeerConnection(socketId, userId);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("offer", { target: socketId, offer, fromUserId: user.uid });
+    });
+
+    socket.on("offer", async (payload) => {
+      const pc = createPeerConnection(payload.from, payload.fromUserId);
+      await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", { target: payload.from, answer });
+    });
+
+    socket.on("answer", async (payload) => {
+      const pc = peerConnections.current[payload.from];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+      }
+    });
+
+    socket.on("ice-candidate", async (payload) => {
+      const pc = peerConnections.current[payload.from];
+      if (pc) {
+        await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+    });
+
+    // Firestore presence
+    const participantRef = doc(db, `servers/${serverId}/channels/${channel.id}/participants`, user.uid);
+    setDoc(participantRef, {
+      uid: user.uid,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      joinedAt: serverTimestamp()
+    });
 
     const q = query(collection(db, `servers/${serverId}/channels/${channel.id}/participants`));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setParticipants(snapshot.docs.map(doc => doc.data() as UserProfile));
+    const unsubFirestore = onSnapshot(q, (snapshot) => {
+      setParticipants(snapshot.docs.map(doc => doc.data()));
     });
 
     return () => {
+      socket.off("user-joined");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
+      
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      
+      Object.values(peerConnections.current).forEach(pc => pc.close());
       deleteDoc(participantRef).catch(console.error);
-      unsub();
+      unsubFirestore();
     };
-  }, [inCall, channel.id, serverId, user.uid, user.displayName, user.photoURL]);
+  }, [inCall, channel.id, serverId, user.uid]);
+
+  useEffect(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(t => t.enabled = !isMuted);
+    }
+  }, [isMuted]);
+
+  useEffect(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(t => t.enabled = isVideoOn);
+    }
+  }, [isVideoOn]);
 
   return (
     <div className="flex-1 flex flex-col bg-discord-darkest p-4">
@@ -873,25 +1088,12 @@ function VoiceCall({ channel, user, serverId }: any) {
         <div className="flex-1 flex flex-col">
           <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 overflow-y-auto">
             {participants.map(p => (
-              <div 
+              <VideoParticipant 
                 key={p.uid} 
-                className={cn(
-                  "bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video transition-all",
-                  p.uid === user.uid ? "border-2 border-discord-blurple shadow-lg" : "border border-discord-darker"
-                )}
-              >
-                {p.uid === user.uid && isVideoOn ? (
-                  <div className="w-full h-full bg-black flex items-center justify-center">
-                    <Video size={48} className="text-discord-muted animate-pulse" />
-                  </div>
-                ) : (
-                  <img src={p.photoURL} className="w-24 h-24 rounded-full mb-4 shadow-xl" referrerPolicy="no-referrer" />
-                )}
-                <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold flex items-center gap-2">
-                  <div className="w-2 h-2 bg-discord-green rounded-full animate-pulse" />
-                  {p.displayName} {p.uid === user.uid && "(You)"}
-                </div>
-              </div>
+                participant={p} 
+                stream={remoteStreamsState[p.uid]} 
+                isLocal={p.uid === user.uid}
+              />
             ))}
             
             {participants.length === 1 && (
@@ -935,6 +1137,314 @@ function VoiceCall({ channel, user, serverId }: any) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Modal({ isOpen, onClose, title, children }: any) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        onClick={onClose}
+        className="absolute inset-0 bg-black bg-opacity-70 backdrop-blur-sm" 
+      />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="relative bg-discord-dark w-full max-w-md rounded-lg shadow-2xl overflow-hidden"
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-white">{title}</h2>
+            <button onClick={onClose} className="text-discord-muted hover:text-white transition-colors">
+              <X size={24} />
+            </button>
+          </div>
+          {children}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function CreateServerModal({ isOpen, onClose, onCreate }: any) {
+  const [name, setName] = useState('');
+  const [image, setImage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleCreate = async () => {
+    setLoading(true);
+    await onCreate(name, image);
+    setLoading(false);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Customize your server">
+      <p className="text-discord-muted mb-6">Give your new server a personality with a name and an icon. You can always change it later.</p>
+      <div className="space-y-4">
+        <div className="flex flex-col items-center mb-6">
+          <div className="w-20 h-20 bg-discord-darker rounded-full border-2 border-dashed border-discord-muted flex flex-col items-center justify-center text-discord-muted cursor-pointer hover:border-discord-blurple transition-colors relative overflow-hidden">
+            {image ? <img src={image} className="w-full h-full object-cover" /> : (
+              <>
+                <Plus size={24} />
+                <span className="text-[10px] font-bold uppercase">Upload</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Server Name</label>
+          <input 
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter server name"
+            className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Icon URL (Optional)</label>
+          <input 
+            value={image}
+            onChange={(e) => setImage(e.target.value)}
+            placeholder="https://example.com/icon.png"
+            className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+          />
+        </div>
+      </div>
+      <div className="mt-8 flex justify-end gap-3">
+        <button onClick={onClose} className="px-6 py-2 text-white hover:underline">Cancel</button>
+        <button 
+          onClick={handleCreate}
+          disabled={!name.trim() || loading}
+          className="bg-discord-blurple text-white font-bold px-6 py-2 rounded hover:bg-opacity-90 transition-all disabled:opacity-50"
+        >
+          {loading ? 'Creating...' : 'Create'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CreateChannelModal({ isOpen, onClose, onCreate }: any) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'text' | 'voice'>('text');
+  const [loading, setLoading] = useState(false);
+
+  const handleCreate = async () => {
+    setLoading(true);
+    await onCreate(name, type);
+    setLoading(false);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Create Channel">
+      <div className="space-y-6">
+        <div>
+          <label className="text-xs font-bold text-discord-muted uppercase mb-3 block">Channel Type</label>
+          <div className="space-y-2">
+            <button 
+              onClick={() => setType('text')}
+              className={cn(
+                "w-full flex items-center gap-3 p-3 rounded transition-all",
+                type === 'text' ? "bg-discord-darker border border-discord-blurple" : "bg-discord-darkest hover:bg-discord-darker border border-transparent"
+              )}
+            >
+              <Hash size={24} className="text-discord-muted" />
+              <div className="text-left">
+                <p className="font-bold">Text</p>
+                <p className="text-xs text-discord-muted">Send messages, images, and GIFs.</p>
+              </div>
+              {type === 'text' && <div className="ml-auto w-4 h-4 bg-discord-blurple rounded-full flex items-center justify-center"><Check size={12} /></div>}
+            </button>
+            <button 
+              onClick={() => setType('voice')}
+              className={cn(
+                "w-full flex items-center gap-3 p-3 rounded transition-all",
+                type === 'voice' ? "bg-discord-darker border border-discord-blurple" : "bg-discord-darkest hover:bg-discord-darker border border-transparent"
+              )}
+            >
+              <Volume2 size={24} className="text-discord-muted" />
+              <div className="text-left">
+                <p className="font-bold">Voice</p>
+                <p className="text-xs text-discord-muted">Hang out with voice, video, and screen share.</p>
+              </div>
+              {type === 'voice' && <div className="ml-auto w-4 h-4 bg-discord-blurple rounded-full flex items-center justify-center"><Check size={12} /></div>}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Channel Name</label>
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-discord-muted">
+              {type === 'text' ? <Hash size={18} /> : <Volume2 size={18} />}
+            </div>
+            <input 
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="new-channel"
+              className="w-full bg-discord-darkest p-3 pl-10 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="mt-8 flex justify-end gap-3">
+        <button onClick={onClose} className="px-6 py-2 text-white hover:underline">Cancel</button>
+        <button 
+          onClick={handleCreate}
+          disabled={!name.trim() || loading}
+          className="bg-discord-blurple text-white font-bold px-6 py-2 rounded hover:bg-opacity-90 transition-all disabled:opacity-50"
+        >
+          {loading ? 'Creating...' : 'Create Channel'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function AddFriendModal({ isOpen, onClose, onSearch, searchResults, onAdd }: any) {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const handleSearch = async () => {
+    setLoading(true);
+    await onSearch(email);
+    setLoading(false);
+  };
+
+  const handleAdd = async (user: UserProfile) => {
+    setLoading(true);
+    await onAdd(user);
+    setLoading(false);
+    setSuccess(true);
+    setTimeout(() => {
+      setSuccess(false);
+      onClose();
+    }, 2000);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Friend">
+      {success ? (
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <div className="w-16 h-16 bg-discord-green rounded-full flex items-center justify-center mb-4 text-white">
+            <Check size={32} />
+          </div>
+          <h3 className="text-xl font-bold mb-2">Friend Request Sent!</h3>
+          <p className="text-discord-muted">We've sent a request to that user.</p>
+        </div>
+      ) : (
+        <>
+          <p className="text-discord-muted mb-6">You can add friends with their email address.</p>
+          <div className="relative mb-6">
+            <input 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Enter an email address"
+              className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+            />
+            <button 
+              onClick={handleSearch}
+              disabled={loading || !email.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-discord-blurple text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-opacity-90 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+          
+          <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+            {searchResults.map((res: UserProfile) => (
+              <div key={res.uid} className="bg-discord-darkest p-3 rounded flex items-center justify-between group hover:bg-discord-darker transition-all">
+                <div className="flex items-center gap-3">
+                  <img src={res.photoURL} className="w-10 h-10 rounded-full border-2 border-transparent group-hover:border-discord-blurple transition-all" referrerPolicy="no-referrer" />
+                  <div>
+                    <p className="font-bold">{res.displayName}</p>
+                    <p className="text-xs text-discord-muted">{res.email}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => handleAdd(res)}
+                  disabled={loading}
+                  className="bg-discord-blurple p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg disabled:opacity-50"
+                >
+                  <UserPlus size={20} />
+                </button>
+              </div>
+            ))}
+            {searchResults.length === 0 && email && !loading && (
+              <p className="text-center py-4 text-discord-muted text-sm italic">No users found with that email.</p>
+            )}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function VideoParticipant({ participant, stream, isLocal }: any) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [hasVideo, setHasVideo] = useState(false);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      
+      const checkVideo = () => {
+        const videoTracks = stream.getVideoTracks();
+        setHasVideo(videoTracks.length > 0 && videoTracks.some((t: any) => t.enabled));
+      };
+
+      checkVideo();
+      stream.onaddtrack = checkVideo;
+      stream.onremovetrack = checkVideo;
+      
+      // Also check periodically as tracks might be enabled/disabled
+      const interval = setInterval(checkVideo, 1000);
+      return () => {
+        clearInterval(interval);
+        stream.onaddtrack = null;
+        stream.onremovetrack = null;
+      };
+    }
+  }, [stream]);
+
+  return (
+    <div 
+      className={cn(
+        "bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video transition-all group",
+        isLocal ? "border-2 border-discord-blurple shadow-lg" : "border border-discord-darker hover:border-discord-muted"
+      )}
+    >
+      {stream && hasVideo ? (
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          muted={isLocal}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
+          <div className="relative">
+            <img src={participant.photoURL} className="w-24 h-24 rounded-full mb-4 shadow-2xl border-4 border-discord-darker" referrerPolicy="no-referrer" />
+            {!stream && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full">
+                <Loader2 className="text-white animate-spin" size={32} />
+              </div>
+            )}
+          </div>
+          {!stream && <p className="text-xs text-discord-muted font-bold tracking-widest uppercase">Connecting...</p>}
+          {stream && !hasVideo && <p className="text-xs text-discord-muted font-bold tracking-widest uppercase">Video Off</p>}
+        </div>
+      )}
+      <div className="absolute bottom-4 left-4 bg-black bg-opacity-60 backdrop-blur-md px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 border border-white border-opacity-10">
+        <div className={cn("w-2 h-2 rounded-full", stream ? "bg-discord-green" : "bg-discord-muted animate-pulse")} />
+        <span className="truncate max-w-[120px]">{participant.displayName} {isLocal && "(You)"}</span>
+      </div>
     </div>
   );
 }
