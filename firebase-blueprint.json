@@ -124,6 +124,10 @@
     "/servers/{serverId}/channels/{channelId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Messages within a channel"
+    },
+    "/servers/{serverId}/channels/{channelId}/participants/{participantId}": {
+      "schema": "UserProfile",
+      "description": "Active participants in a voice/video call"
     }
   }
 }

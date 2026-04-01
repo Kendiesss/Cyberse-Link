@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, loginWithGoogle, logout, OperationType, handleFirestoreError } from './firebase';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where, deleteDoc } from 'firebase/firestore';
 import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff, Users, UserPlus, Check, X, Search, Mail } from 'lucide-react';
 import { cn } from './lib/utils';
 import { format } from 'date-fns';
@@ -76,7 +76,8 @@ export default function App() {
   // Fetch Friend Requests
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, `users/${user.uid}/friendRequests`), where('status', '==', 'pending'));
+    // Fetch both incoming and outgoing requests
+    const q = query(collection(db, `users/${user.uid}/friendRequests`));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFriendRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FriendRequest)));
     });
@@ -280,8 +281,9 @@ export default function App() {
         status: 'pending',
         timestamp: serverTimestamp()
       };
-      // Add to target user's requests
+      // Add to both users' requests
       await setDoc(doc(db, `users/${targetUser.uid}/friendRequests`, requestId), requestData);
+      await setDoc(doc(db, `users/${user.uid}/friendRequests`, requestId), requestData);
       alert('Friend request sent!');
     } catch (err) {
       console.error('Friend request error:', err);
@@ -298,15 +300,16 @@ export default function App() {
         friendPhoto: request.fromPhoto,
         createdAt: new Date().toISOString()
       });
-      // Add to other user's friends
+      // Add to other user's friends (allowed by new rules)
       await setDoc(doc(db, `users/${request.fromId}/friends`, user.uid), {
         friendId: user.uid,
         friendName: user.displayName,
         friendPhoto: user.photoURL,
         createdAt: new Date().toISOString()
       });
-      // Update request status
+      // Update request status in both places
       await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
+      await setDoc(doc(db, `users/${request.fromId}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
     } catch (err) {
       console.error('Accept friend error:', err);
     }
@@ -316,6 +319,7 @@ export default function App() {
     if (!user) return;
     try {
       await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'declined' }, { merge: true });
+      await setDoc(doc(db, `users/${request.fromId}/friendRequests`, request.id), { status: 'declined' }, { merge: true });
     } catch (err) {
       console.error('Reject friend error:', err);
     }
@@ -532,32 +536,37 @@ export default function App() {
                 </section>
 
                 {/* Requests Section */}
-                {friendRequests.length > 0 && (
+                {friendRequests.filter(r => r.status === 'pending').length > 0 && (
                   <section>
                     <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Pending Requests</h3>
                     <div className="space-y-2">
-                      {friendRequests.map(req => (
+                      {friendRequests.filter(r => r.status === 'pending').map(req => (
                         <div key={req.id} className="bg-discord-darker p-3 rounded flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <img src={req.fromPhoto} className="w-10 h-10 rounded-full" />
-                            <p className="font-bold">{req.fromName}</p>
+                            <img src={req.fromId === user.uid ? 'https://api.dicebear.com/7.x/avataaars/svg?seed=sent' : req.fromPhoto} className="w-10 h-10 rounded-full" />
+                            <div>
+                              <p className="font-bold">{req.fromId === user.uid ? `Sent to ${req.toId.substring(0, 5)}...` : req.fromName}</p>
+                              <p className="text-xs text-discord-muted">{req.fromId === user.uid ? 'Outgoing' : 'Incoming'}</p>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => acceptFriendRequest(req)}
-                              className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
-                              title="Accept"
-                            >
-                              <Check size={20} />
-                            </button>
-                            <button 
-                              onClick={() => rejectFriendRequest(req)}
-                              className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
-                              title="Decline"
-                            >
-                              <X size={20} />
-                            </button>
-                          </div>
+                          {req.fromId !== user.uid && (
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => acceptFriendRequest(req)}
+                                className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
+                                title="Accept"
+                              >
+                                <Check size={20} />
+                              </button>
+                              <button 
+                                onClick={() => rejectFriendRequest(req)}
+                                className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
+                                title="Decline"
+                              >
+                                <X size={20} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -622,7 +631,7 @@ export default function App() {
                   isAIThinking={isAIThinking}
                 />
               ) : (
-                <VoiceCall channel={activeChannel} user={user} />
+                <VoiceCall channel={activeChannel} user={user} serverId={activeServer.id} />
               )}
             </motion.div>
           ) : (
@@ -811,10 +820,38 @@ function ChatWindow({ messages, onSendMessage, isAIThinking }: any) {
   );
 }
 
-function VoiceCall({ channel, user }: any) {
+function VoiceCall({ channel, user, serverId }: any) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [inCall, setInCall] = useState(false);
+  const [participants, setParticipants] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    if (!inCall) return;
+
+    const participantRef = doc(db, `servers/${serverId}/channels/${channel.id}/participants`, user.uid);
+    
+    const joinCall = async () => {
+      await setDoc(participantRef, {
+        uid: user.uid,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        joinedAt: serverTimestamp()
+      });
+    };
+
+    joinCall();
+
+    const q = query(collection(db, `servers/${serverId}/channels/${channel.id}/participants`));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setParticipants(snapshot.docs.map(doc => doc.data() as UserProfile));
+    });
+
+    return () => {
+      deleteDoc(participantRef).catch(console.error);
+      unsub();
+    };
+  }, [inCall, channel.id, serverId, user.uid, user.displayName, user.photoURL]);
 
   return (
     <div className="flex-1 flex flex-col bg-discord-darkest p-4">
@@ -834,30 +871,39 @@ function VoiceCall({ channel, user }: any) {
         </div>
       ) : (
         <div className="flex-1 flex flex-col">
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
-            {/* User Video/Avatar */}
-            <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video border-2 border-discord-blurple">
-              {isVideoOn ? (
-                <div className="w-full h-full bg-black flex items-center justify-center">
-                  <Video size={48} className="text-discord-muted animate-pulse" />
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 overflow-y-auto">
+            {participants.map(p => (
+              <div 
+                key={p.uid} 
+                className={cn(
+                  "bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video transition-all",
+                  p.uid === user.uid ? "border-2 border-discord-blurple shadow-lg" : "border border-discord-darker"
+                )}
+              >
+                {p.uid === user.uid && isVideoOn ? (
+                  <div className="w-full h-full bg-black flex items-center justify-center">
+                    <Video size={48} className="text-discord-muted animate-pulse" />
+                  </div>
+                ) : (
+                  <img src={p.photoURL} className="w-24 h-24 rounded-full mb-4 shadow-xl" referrerPolicy="no-referrer" />
+                )}
+                <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold flex items-center gap-2">
+                  <div className="w-2 h-2 bg-discord-green rounded-full animate-pulse" />
+                  {p.displayName} {p.uid === user.uid && "(You)"}
                 </div>
-              ) : (
-                <img src={user.photoURL} className="w-24 h-24 rounded-full mb-4" />
-              )}
-              <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
-                {user.displayName} (You)
               </div>
-            </div>
+            ))}
             
-            {/* Placeholder for other participants */}
-            <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video">
-              <div className="w-20 h-20 bg-discord-darker rounded-full flex items-center justify-center mb-4">
-                <User size={40} className="text-discord-muted" />
+            {participants.length === 1 && (
+              <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video border border-dashed border-discord-muted opacity-50">
+                <div className="w-20 h-20 bg-discord-darker rounded-full flex items-center justify-center mb-4">
+                  <User size={40} className="text-discord-muted" />
+                </div>
+                <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
+                  Waiting for others...
+                </div>
               </div>
-              <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
-                Waiting for others...
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Call Controls */}

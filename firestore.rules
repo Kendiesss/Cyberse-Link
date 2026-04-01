@@ -63,15 +63,23 @@ service cloud.firestore {
       allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
 
       match /friendRequests/{requestId} {
-        allow read: if isOwner(userId);
-        allow create: if isAuthenticated() && isValidFriendRequest(request.resource.data) && (request.resource.data.fromId == request.auth.uid || request.resource.data.toId == request.auth.uid);
+        allow read: if isAuthenticated() && (userId == request.auth.uid || resource.data.fromId == request.auth.uid);
+        allow create: if isAuthenticated() && isValidFriendRequest(request.resource.data) && request.resource.data.fromId == request.auth.uid;
         allow update: if isOwner(userId) && request.resource.data.status in ['accepted', 'declined'];
-        allow delete: if isOwner(userId);
+        allow delete: if isOwner(userId) || (isAuthenticated() && resource.data.fromId == request.auth.uid);
       }
 
       match /friends/{friendId} {
         allow read: if isOwner(userId);
-        allow create, delete: if isOwner(userId);
+        // Allow a user to add themselves to someone else's friends list IF that person has an accepted request from them
+        allow create: if isOwner(userId) || 
+          (isOwner(friendId) && (
+            get(/databases/$(database)/documents/users/$(userId)/friendRequests/$(userId + '_' + friendId)).data.status == 'accepted' ||
+            get(/databases/$(database)/documents/users/$(friendId)/friendRequests/$(userId + '_' + friendId)).data.status == 'accepted' ||
+            get(/databases/$(database)/documents/users/$(userId)/friendRequests/$(friendId + '_' + userId)).data.status == 'accepted' ||
+            get(/databases/$(database)/documents/users/$(friendId)/friendRequests/$(friendId + '_' + userId)).data.status == 'accepted'
+          ));
+        allow delete: if isOwner(userId) || isOwner(friendId);
       }
     }
 
@@ -82,7 +90,7 @@ service cloud.firestore {
 
       match /members/{memberId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated(); // Allow joining
+        allow create: if isAuthenticated(); 
         allow delete: if isAuthenticated() && (memberId == request.auth.uid || get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid);
       }
 
@@ -90,6 +98,11 @@ service cloud.firestore {
         allow read: if isServerMember(serverId);
         allow create: if isAuthenticated() && isValidChannel(request.resource.data) && get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid;
         allow update, delete: if isAuthenticated() && get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid;
+
+        match /participants/{participantId} {
+          allow read: if isServerMember(serverId);
+          allow create, update, delete: if isOwner(participantId);
+        }
 
         match /messages/{messageId} {
           allow read: if isServerMember(serverId);
