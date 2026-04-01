@@ -1,0 +1,531 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { auth, db, loginWithGoogle, logout, OperationType, handleFirestoreError } from './firebase';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where } from 'firebase/firestore';
+import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff } from 'lucide-react';
+import { cn } from './lib/utils';
+import { format } from 'date-fns';
+import { askAI, summarizeConversation } from './services/geminiService';
+import type { Server, Channel, Message, UserProfile } from './types';
+import Markdown from 'react-markdown';
+
+import { AnimatePresence, motion } from 'motion/react';
+
+export default function App() {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeServer, setActiveServer] = useState<Server | null>(null);
+  const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
+  const [servers, setServers] = useState<Server[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isAIThinking, setIsAIThinking] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Fetch Servers
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'servers'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const s = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Server));
+      setServers(s);
+      if (s.length > 0 && !activeServer) {
+        setActiveServer(s[0]);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'servers'));
+    return unsubscribe;
+  }, [user]);
+
+  // Fetch Channels
+  useEffect(() => {
+    if (!user || !activeServer) {
+      setChannels([]);
+      return;
+    }
+    const q = query(collection(db, `servers/${activeServer.id}/channels`), orderBy('createdAt', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const c = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Channel));
+      setChannels(c);
+      if (c.length > 0) {
+        setActiveChannel(c[0]);
+      } else {
+        setActiveChannel(null);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServer.id}/channels`));
+    return unsubscribe;
+  }, [user, activeServer]);
+
+  // Fetch Messages
+  useEffect(() => {
+    if (!user || !activeServer || !activeChannel || activeChannel.type !== 'text') {
+      setMessages([]);
+      return;
+    }
+    const q = query(
+      collection(db, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`),
+      orderBy('timestamp', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const m = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      setMessages(m);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`));
+    return unsubscribe;
+  }, [user, activeServer, activeChannel]);
+
+  const handleCreateServer = async () => {
+    if (!user) return;
+    const name = prompt('Enter server name:');
+    if (!name) return;
+    try {
+      const serverRef = doc(collection(db, 'servers'));
+      const serverData: Server = {
+        id: serverRef.id,
+        name,
+        ownerId: user.uid,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(serverRef, serverData);
+      
+      // Create default channel
+      const channelRef = doc(collection(db, `servers/${serverRef.id}/channels`));
+      await setDoc(channelRef, {
+        id: channelRef.id,
+        serverId: serverRef.id,
+        name: 'general',
+        type: 'text',
+        createdAt: new Date().toISOString()
+      });
+      
+      setActiveServer(serverData);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'servers');
+    }
+  };
+
+  const handleCreateChannel = async () => {
+    if (!user || !activeServer) return;
+    const name = prompt('Enter channel name:');
+    if (!name) return;
+    const type = confirm('Is this a voice channel?') ? 'voice' : 'text';
+    try {
+      const channelRef = doc(collection(db, `servers/${activeServer.id}/channels`));
+      await setDoc(channelRef, {
+        id: channelRef.id,
+        serverId: activeServer.id,
+        name: name.toLowerCase().replace(/\s+/g, '-'),
+        type,
+        createdAt: new Date().toISOString()
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `servers/${activeServer.id}/channels`);
+    }
+  };
+
+  const handleSendMessage = async (content: string) => {
+    if (!user || !activeServer || !activeChannel || !content.trim()) return;
+    
+    const messageData = {
+      channelId: activeChannel.id,
+      serverId: activeServer.id,
+      authorId: user.uid,
+      authorName: user.displayName || 'Anonymous',
+      authorPhoto: user.photoURL || '',
+      content: content.trim(),
+      timestamp: serverTimestamp(),
+      isAI: false
+    };
+
+    try {
+      await addDoc(collection(db, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`), messageData);
+      
+      // AI Trigger
+      if (content.toLowerCase().startsWith('@ai')) {
+        setIsAIThinking(true);
+        const prompt = content.slice(3).trim();
+        const aiResponse = await askAI(prompt, messages.slice(-5).map(m => `${m.authorName}: ${m.content}`).join('\n'));
+        
+        await addDoc(collection(db, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`), {
+          channelId: activeChannel.id,
+          serverId: activeServer.id,
+          authorId: 'ai-assistant',
+          authorName: 'Cyberse AI',
+          authorPhoto: 'https://api.dicebear.com/7.x/bottts/svg?seed=Cyberse',
+          content: aiResponse,
+          timestamp: serverTimestamp(),
+          isAI: true
+        });
+        setIsAIThinking(false);
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`);
+    }
+  };
+
+  const handleSummarize = async () => {
+    if (messages.length === 0) return;
+    setIsAIThinking(true);
+    const summary = await summarizeConversation(messages.map(m => `${m.authorName}: ${m.content}`));
+    
+    await addDoc(collection(db, `servers/${activeServer.id}/channels/${activeChannel.id}/messages`), {
+      channelId: activeChannel.id,
+      serverId: activeServer.id,
+      authorId: 'ai-assistant',
+      authorName: 'Cyberse AI (Summary)',
+      authorPhoto: 'https://api.dicebear.com/7.x/bottts/svg?seed=Cyberse',
+      content: summary,
+      timestamp: serverTimestamp(),
+      isAI: true
+    });
+    setIsAIThinking(false);
+  };
+
+  if (loading) return <div className="h-screen w-full flex items-center justify-center bg-discord-darkest text-white">Loading...</div>;
+
+  if (!user) return <LoginScreen onLogin={loginWithGoogle} />;
+
+  return (
+    <div className="h-screen w-full flex overflow-hidden">
+      {/* Server Sidebar */}
+      <div className="w-[72px] bg-discord-darkest flex flex-col items-center py-3 gap-2 flex-shrink-0">
+        <ServerIcon 
+          name="Home" 
+          active={!activeServer} 
+          onClick={() => setActiveServer(null)} 
+          icon={<MessageSquare size={28} />}
+        />
+        <div className="w-8 h-[2px] bg-discord-dark rounded-full my-1" />
+        {servers.map(server => (
+          <ServerIcon 
+            key={server.id}
+            name={server.name}
+            active={activeServer?.id === server.id}
+            onClick={() => setActiveServer(server)}
+            image={server.iconURL}
+          />
+        ))}
+        <ServerIcon 
+          name="Add Server" 
+          onClick={handleCreateServer} 
+          icon={<Plus size={28} />}
+          className="text-discord-green hover:bg-discord-green hover:text-white"
+        />
+      </div>
+
+      {/* Channel Sidebar */}
+      <div className="w-60 bg-discord-sidebar flex flex-col flex-shrink-0">
+        <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
+          <h1 className="font-bold truncate">{activeServer?.name || 'Direct Messages'}</h1>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-2 space-y-4">
+          {activeServer && (
+            <div>
+              <div className="flex items-center justify-between px-2 mb-1 group">
+                <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
+                <button onClick={handleCreateChannel} className="text-discord-muted hover:text-discord-text transition-colors">
+                  <Plus size={14} />
+                </button>
+              </div>
+              <div className="space-y-0.5">
+                {channels.map(channel => (
+                  <ChannelItem 
+                    key={channel.id}
+                    channel={channel}
+                    active={activeChannel?.id === channel.id}
+                    onClick={() => setActiveChannel(channel)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* User Info */}
+        <div className="h-14 bg-discord-darker px-2 flex items-center gap-2">
+          <img src={user.photoURL || ''} className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold truncate leading-tight">{user.displayName}</p>
+            <p className="text-xs text-discord-muted truncate">#{user.uid.slice(0, 4)}</p>
+          </div>
+          <button onClick={logout} className="p-2 text-discord-muted hover:text-discord-text hover:bg-discord-dark rounded transition-colors">
+            <LogOut size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 bg-discord-dark flex flex-col min-w-0">
+        <AnimatePresence mode="wait">
+          {activeChannel ? (
+            <motion.div 
+              key={activeChannel.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex flex-col min-h-0"
+            >
+              <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
+                <div className="flex items-center gap-2">
+                  {activeChannel.type === 'text' ? <Hash size={24} className="text-discord-muted" /> : <Volume2 size={24} className="text-discord-muted" />}
+                  <h2 className="font-bold">{activeChannel.name}</h2>
+                </div>
+                <div className="flex items-center gap-4 text-discord-muted">
+                  {activeChannel.type === 'text' && (
+                    <button onClick={handleSummarize} className="hover:text-discord-text flex items-center gap-1 text-sm font-medium">
+                      <Sparkles size={18} />
+                      Summarize
+                    </button>
+                  )}
+                  <Settings size={20} className="hover:text-discord-text cursor-pointer" />
+                </div>
+              </div>
+
+              {activeChannel.type === 'text' ? (
+                <ChatWindow 
+                  messages={messages} 
+                  onSendMessage={handleSendMessage} 
+                  isAIThinking={isAIThinking}
+                />
+              ) : (
+                <VoiceCall channel={activeChannel} user={user} />
+              )}
+            </motion.div>
+          ) : (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex-1 flex flex-col items-center justify-center text-discord-muted p-8 text-center"
+            >
+              <div className="w-24 h-24 bg-discord-darker rounded-full flex items-center justify-center mb-4">
+                <MessageSquare size={48} />
+              </div>
+              <h2 className="text-2xl font-bold text-discord-text mb-2">Welcome to Cyberse Link</h2>
+              <p className="max-w-md">Select a server and channel to start communicating. Use @ai to talk to the assistant!</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  return (
+    <div className="h-screen w-full flex items-center justify-center bg-discord-darkest p-4">
+      <div className="bg-discord-dark p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
+        <div className="w-20 h-20 bg-discord-blurple rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+          <Sparkles size={40} className="text-white" />
+        </div>
+        <h1 className="text-3xl font-bold mb-2">Cyberse Link</h1>
+        <p className="text-discord-muted mb-8">The next generation AI communication platform</p>
+        <button 
+          onClick={onLogin}
+          className="w-full bg-discord-blurple hover:bg-opacity-90 text-white font-bold py-3 px-4 rounded transition-all flex items-center justify-center gap-3"
+        >
+          <img src="https://www.google.com/favicon.ico" className="w-5 h-5 bg-white rounded-full p-0.5" />
+          Continue with Google
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ServerIcon({ name, active, onClick, icon, image, className }: any) {
+  return (
+    <div className="relative group flex items-center justify-center w-full">
+      <div className={cn(
+        "absolute left-0 w-1 bg-white rounded-r-full transition-all duration-200",
+        active ? "h-10" : "h-2 group-hover:h-5 opacity-0 group-hover:opacity-100"
+      )} />
+      <button 
+        onClick={onClick}
+        title={name}
+        className={cn(
+          "w-12 h-12 flex items-center justify-center transition-all duration-200 overflow-hidden",
+          active ? "rounded-[16px] bg-discord-blurple text-white" : "rounded-[24px] bg-discord-dark hover:rounded-[16px] hover:bg-discord-blurple text-discord-text hover:text-white",
+          className
+        )}
+      >
+        {image ? <img src={image} className="w-full h-full object-cover" /> : icon || name[0]}
+      </button>
+    </div>
+  );
+}
+
+function ChannelItem({ channel, active, onClick }: any) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-2 px-2 py-1.5 rounded group transition-colors",
+        active ? "bg-discord-dark text-discord-text" : "text-discord-muted hover:bg-discord-dark hover:text-discord-text"
+      )}
+    >
+      {channel.type === 'text' ? <Hash size={20} /> : <Volume2 size={20} />}
+      <span className="font-medium truncate">{channel.name}</span>
+    </button>
+  );
+}
+
+function ChatWindow({ messages, onSendMessage, isAIThinking }: any) {
+  const [input, setInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isAIThinking]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    onSendMessage(input);
+    setInput('');
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+        {messages.map((msg: Message) => (
+          <div key={msg.id} className="flex gap-4 group">
+            <img src={msg.authorPhoto} className="w-10 h-10 rounded-full flex-shrink-0 mt-0.5" referrerPolicy="no-referrer" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className={cn("font-bold hover:underline cursor-pointer", msg.isAI && "text-discord-blurple")}>
+                  {msg.authorName}
+                </span>
+                {msg.isAI && <span className="bg-discord-blurple text-[10px] px-1 rounded text-white font-bold uppercase">AI</span>}
+                <span className="text-xs text-discord-muted">
+                  {msg.timestamp?.toDate ? format(msg.timestamp.toDate(), 'HH:mm') : 'Just now'}
+                </span>
+              </div>
+              <div className="text-discord-text leading-relaxed break-words markdown-body">
+                <Markdown>{msg.content}</Markdown>
+              </div>
+            </div>
+          </div>
+        ))}
+        {isAIThinking && (
+          <div className="flex gap-4 animate-pulse">
+            <div className="w-10 h-10 rounded-full bg-discord-darker" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-24 bg-discord-darker rounded" />
+              <div className="h-4 w-full bg-discord-darker rounded" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-4">
+        <div className="bg-discord-darker rounded-lg px-4 py-2 flex items-center gap-3">
+          <button type="button" className="text-discord-muted hover:text-discord-text">
+            <Plus size={24} />
+          </button>
+          <input 
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type @ai to ask the assistant..."
+            className="flex-1 bg-transparent border-none outline-none text-discord-text placeholder:text-discord-muted py-2"
+          />
+          <div className="flex items-center gap-3 text-discord-muted">
+            <button type="button" className="hover:text-discord-text"><Sparkles size={20} /></button>
+            <button type="submit" className="text-discord-blurple hover:text-opacity-80 disabled:opacity-50" disabled={!input.trim()}>
+              <Send size={20} />
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function VoiceCall({ channel, user }: any) {
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOn, setIsVideoOn] = useState(false);
+  const [inCall, setInCall] = useState(false);
+
+  return (
+    <div className="flex-1 flex flex-col bg-discord-darkest p-4">
+      {!inCall ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="w-20 h-20 bg-discord-dark rounded-full flex items-center justify-center mb-6">
+            <Volume2 size={40} className="text-discord-muted" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Voice Channel: {channel.name}</h2>
+          <p className="text-discord-muted mb-8 max-w-sm">Hop into the call to chat with others in real-time using voice and video.</p>
+          <button 
+            onClick={() => setInCall(true)}
+            className="bg-discord-green hover:bg-opacity-90 text-white font-bold py-3 px-12 rounded-full transition-all"
+          >
+            Join Call
+          </button>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+            {/* User Video/Avatar */}
+            <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video border-2 border-discord-blurple">
+              {isVideoOn ? (
+                <div className="w-full h-full bg-black flex items-center justify-center">
+                  <Video size={48} className="text-discord-muted animate-pulse" />
+                </div>
+              ) : (
+                <img src={user.photoURL} className="w-24 h-24 rounded-full mb-4" />
+              )}
+              <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
+                {user.displayName} (You)
+              </div>
+            </div>
+            
+            {/* Placeholder for other participants */}
+            <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video">
+              <div className="w-20 h-20 bg-discord-darker rounded-full flex items-center justify-center mb-4">
+                <User size={40} className="text-discord-muted" />
+              </div>
+              <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
+                Waiting for others...
+              </div>
+            </div>
+          </div>
+
+          {/* Call Controls */}
+          <div className="h-24 flex items-center justify-center gap-4">
+            <button 
+              onClick={() => setIsMuted(!isMuted)}
+              className={cn(
+                "w-12 h-12 rounded-full flex items-center justify-center transition-all",
+                isMuted ? "bg-red-500 text-white" : "bg-discord-dark text-discord-text hover:bg-discord-darker"
+              )}
+            >
+              {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+            </button>
+            <button 
+              onClick={() => setIsVideoOn(!isVideoOn)}
+              className={cn(
+                "w-12 h-12 rounded-full flex items-center justify-center transition-all",
+                !isVideoOn ? "bg-red-500 text-white" : "bg-discord-dark text-discord-text hover:bg-discord-darker"
+              )}
+            >
+              {!isVideoOn ? <VideoOff size={24} /> : <Video size={24} />}
+            </button>
+            <button 
+              onClick={() => setInCall(false)}
+              className="w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-all"
+            >
+              <PhoneOff size={24} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

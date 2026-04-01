@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "idle", "dnd", "offline"] },
+        "lastSeen": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "Server": {
+      "title": "Server",
+      "description": "A server containing multiple channels",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "iconURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerId"]
+    },
+    "Channel": {
+      "title": "Channel",
+      "description": "A chat or voice channel within a server",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "serverId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "voice"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "serverId", "name", "type"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "channelId": { "type": "string" },
+        "serverId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "isAI": { "type": "boolean" }
+      },
+      "required": ["id", "channelId", "authorId", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/servers/{serverId}": {
+      "schema": "Server",
+      "description": "Servers"
+    },
+    "/servers/{serverId}/channels/{channelId}": {
+      "schema": "Channel",
+      "description": "Channels within a server"
+    },
+    "/servers/{serverId}/channels/{channelId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a channel"
+    }
+  }
+}

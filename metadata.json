@@ -1,0 +1,5 @@
+{
+  "name": "Cyberse Link",
+  "description": "A modern AI-powered communication platform with real-time chat, voice calls, and intelligent assistants.",
+  "requestFramePermissions": ["camera", "microphone"]
+}

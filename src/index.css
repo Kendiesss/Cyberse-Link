@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-discord-dark: #313338;
+  --color-discord-darker: #2b2d31;
+  --color-discord-darkest: #1e1f22;
+  --color-discord-sidebar: #232428;
+  --color-discord-blurple: #5865f2;
+  --color-discord-green: #23a559;
+  --color-discord-text: #dbdee1;
+  --color-discord-muted: #949ba4;
+}
+
+@layer base {
+  body {
+    @apply bg-discord-dark text-discord-text antialiased;
+  }
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
