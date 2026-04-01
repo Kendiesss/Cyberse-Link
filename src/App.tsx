@@ -245,34 +245,41 @@ export default function App() {
 
   const acceptFriendRequest = async (request: FriendRequest) => {
     if (!user) return;
+    console.log('Accepting friend request:', request.id);
     try {
-      // Add to current user's friends
+      // 1. Update request status in both places FIRST to satisfy security rules
+      await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
+      await setDoc(doc(db, `users/${request.fromId}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
+      
+      // 2. Add to current user's friends
       await setDoc(doc(db, `users/${user.uid}/friends`, request.fromId), {
         friendId: request.fromId,
         friendName: request.fromName,
         friendPhoto: request.fromPhoto,
         createdAt: new Date().toISOString()
       });
-      // Add to other user's friends (allowed by new rules)
+      
+      // 3. Add to other user's friends
       await setDoc(doc(db, `users/${request.fromId}/friends`, user.uid), {
         friendId: user.uid,
-        friendName: user.displayName,
-        friendPhoto: user.photoURL,
+        friendName: user.displayName || 'Anonymous',
+        friendPhoto: user.photoURL || '',
         createdAt: new Date().toISOString()
       });
-      // Update request status in both places
-      await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
-      await setDoc(doc(db, `users/${request.fromId}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
+      console.log('Friend request accepted successfully');
     } catch (err) {
       console.error('Accept friend error:', err);
+      alert('Failed to accept friend request. Please try again.');
     }
   };
 
   const rejectFriendRequest = async (request: FriendRequest) => {
     if (!user) return;
+    console.log('Rejecting friend request:', request.id);
     try {
       await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'declined' }, { merge: true });
       await setDoc(doc(db, `users/${request.fromId}/friendRequests`, request.id), { status: 'declined' }, { merge: true });
+      console.log('Friend request rejected successfully');
     } catch (err) {
       console.error('Reject friend error:', err);
     }
@@ -576,29 +583,38 @@ export default function App() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 relative z-10">
                             {req.fromId !== user.uid ? (
                               <>
                                 <button 
-                                  onClick={() => acceptFriendRequest(req)}
-                                  className="bg-cyberse-glow p-2 rounded-lg hover:scale-110 transition-all text-cyberse-bg shadow-lg"
-                                  title="Accept"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    acceptFriendRequest(req);
+                                  }}
+                                  className="bg-cyberse-glow w-10 h-10 flex items-center justify-center rounded-xl hover:scale-110 active:scale-95 transition-all text-cyberse-bg shadow-[0_0_15px_rgba(0,242,255,0.3)] cursor-pointer"
+                                  aria-label="Accept"
                                 >
-                                  <Check size={20} />
+                                  <Check size={22} strokeWidth={3} />
                                 </button>
                                 <button 
-                                  onClick={() => rejectFriendRequest(req)}
-                                  className="bg-red-500 p-2 rounded-lg hover:scale-110 transition-all text-white shadow-lg"
-                                  title="Decline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    rejectFriendRequest(req);
+                                  }}
+                                  className="bg-red-500/20 hover:bg-red-500 w-10 h-10 flex items-center justify-center rounded-xl hover:scale-110 active:scale-95 transition-all text-red-500 hover:text-white border border-red-500/30 hover:border-red-500 shadow-lg cursor-pointer"
+                                  aria-label="Decline"
                                 >
-                                  <X size={20} />
+                                  <X size={22} strokeWidth={3} />
                                 </button>
                               </>
                             ) : (
                               <button 
-                                onClick={() => rejectFriendRequest(req)}
-                                className="p-2 text-cyberse-muted hover:text-red-500 transition-all"
-                                title="Cancel Request"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  rejectFriendRequest(req);
+                                }}
+                                className="p-2 text-cyberse-muted hover:text-red-500 transition-all cursor-pointer"
+                                aria-label="Cancel Request"
                               >
                                 <X size={20} />
                               </button>
