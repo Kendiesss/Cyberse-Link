@@ -56,6 +56,44 @@
         "isAI": { "type": "boolean" }
       },
       "required": ["id", "channelId", "authorId", "content", "timestamp"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "A request to be friends",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fromId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromPhoto": { "type": "string" },
+        "toId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fromId", "toId", "status"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "A confirmed friendship",
+      "type": "object",
+      "properties": {
+        "friendId": { "type": "string" },
+        "friendName": { "type": "string" },
+        "friendPhoto": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["friendId", "friendName"]
+    },
+    "ServerMember": {
+      "title": "ServerMember",
+      "description": "A member of a server",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role"]
     }
   },
   "firestore": {
@@ -63,9 +101,21 @@
       "schema": "User",
       "description": "User profiles"
     },
+    "/users/{userId}/friendRequests/{requestId}": {
+      "schema": "FriendRequest",
+      "description": "Incoming and outgoing friend requests"
+    },
+    "/users/{userId}/friends/{friendId}": {
+      "schema": "Friendship",
+      "description": "User's friends list"
+    },
     "/servers/{serverId}": {
       "schema": "Server",
       "description": "Servers"
+    },
+    "/servers/{serverId}/members/{userId}": {
+      "schema": "ServerMember",
+      "description": "Members of a server"
     },
     "/servers/{serverId}/channels/{channelId}": {
       "schema": "Channel",

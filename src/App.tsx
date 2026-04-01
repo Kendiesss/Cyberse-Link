@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, loginWithGoogle, logout, OperationType, handleFirestoreError } from './firebase';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc, getDocs, where } from 'firebase/firestore';
-import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff } from 'lucide-react';
+import { Hash, Volume2, Plus, Settings, LogOut, MessageSquare, Send, Sparkles, User, Video, Mic, MicOff, VideoOff, PhoneOff, Users, UserPlus, Check, X, Search, Mail } from 'lucide-react';
 import { cn } from './lib/utils';
 import { format } from 'date-fns';
 import { askAI, summarizeConversation } from './services/geminiService';
-import type { Server, Channel, Message, UserProfile } from './types';
+import type { Server, Channel, Message, UserProfile, FriendRequest, Friendship, ServerMember } from './types';
 import Markdown from 'react-markdown';
 
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,26 +20,66 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAIThinking, setIsAIThinking] = useState(false);
+  
+  // Friends State
+  const [friends, setFriends] = useState<Friendship[]>([]);
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
+  const [showFriendsView, setShowFriendsView] = useState(false);
+  const [searchEmail, setSearchEmail] = useState('');
+  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setLoading(false);
+      if (u) {
+        // Create/Update user profile for searchability
+        try {
+          await setDoc(doc(db, 'users', u.uid), {
+            uid: u.uid,
+            displayName: u.displayName,
+            email: u.email,
+            photoURL: u.photoURL,
+            lastSeen: serverTimestamp()
+          }, { merge: true });
+        } catch (err) {
+          console.error('Profile update error:', err);
+        }
+      }
     });
     return unsubscribe;
   }, []);
 
-  // Fetch Servers
+  // Fetch Servers (where user is a member)
   useEffect(() => {
     if (!user) return;
+    // In a real app, we'd query servers where user is a member.
+    // For simplicity, we'll fetch all servers but in production you'd use a collectionGroup or a members subcollection check.
     const q = query(collection(db, 'servers'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const s = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Server));
       setServers(s);
-      if (s.length > 0 && !activeServer) {
-        setActiveServer(s[0]);
-      }
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'servers'));
+    return unsubscribe;
+  }, [user]);
+
+  // Fetch Friends
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, `users/${user.uid}/friends`));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setFriends(snapshot.docs.map(doc => doc.data() as Friendship));
+    });
+    return unsubscribe;
+  }, [user]);
+
+  // Fetch Friend Requests
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, `users/${user.uid}/friendRequests`), where('status', '==', 'pending'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setFriendRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FriendRequest)));
+    });
     return unsubscribe;
   }, [user]);
 
@@ -53,10 +93,8 @@ export default function App() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const c = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Channel));
       setChannels(c);
-      if (c.length > 0) {
+      if (c.length > 0 && !activeChannel) {
         setActiveChannel(c[0]);
-      } else {
-        setActiveChannel(null);
       }
     }, (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServer.id}/channels`));
     return unsubscribe;
@@ -93,6 +131,13 @@ export default function App() {
       };
       await setDoc(serverRef, serverData);
       
+      // Add owner as member
+      await setDoc(doc(db, `servers/${serverRef.id}/members`, user.uid), {
+        uid: user.uid,
+        role: 'owner',
+        joinedAt: new Date().toISOString()
+      });
+
       // Create default channel
       const channelRef = doc(collection(db, `servers/${serverRef.id}/channels`));
       await setDoc(channelRef, {
@@ -104,6 +149,7 @@ export default function App() {
       });
       
       setActiveServer(serverData);
+      setShowFriendsView(false);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'servers');
     }
@@ -169,7 +215,7 @@ export default function App() {
   };
 
   const handleSummarize = async () => {
-    if (messages.length === 0) return;
+    if (!activeServer || !activeChannel || messages.length === 0) return;
     setIsAIThinking(true);
     const summary = await summarizeConversation(messages.map(m => `${m.authorName}: ${m.content}`));
     
@@ -186,6 +232,77 @@ export default function App() {
     setIsAIThinking(false);
   };
 
+  const handleSearchUsers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchEmail.trim()) return;
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', searchEmail.trim()));
+      const snapshot = await getDocs(q);
+      setSearchResults(snapshot.docs.map(doc => doc.data() as UserProfile).filter(u => u.uid !== user?.uid));
+    } catch (err) {
+      console.error('Search error:', err);
+    }
+  };
+
+  const sendFriendRequest = async (targetUser: UserProfile) => {
+    if (!user) return;
+    try {
+      const requestId = `${user.uid}_${targetUser.uid}`;
+      const requestData: FriendRequest = {
+        id: requestId,
+        fromId: user.uid,
+        fromName: user.displayName || 'Anonymous',
+        fromPhoto: user.photoURL || '',
+        toId: targetUser.uid,
+        status: 'pending',
+        timestamp: serverTimestamp()
+      };
+      // Add to target user's requests
+      await setDoc(doc(db, `users/${targetUser.uid}/friendRequests`, requestId), requestData);
+      alert('Friend request sent!');
+    } catch (err) {
+      console.error('Friend request error:', err);
+    }
+  };
+
+  const acceptFriendRequest = async (request: FriendRequest) => {
+    if (!user) return;
+    try {
+      // Add to current user's friends
+      await setDoc(doc(db, `users/${user.uid}/friends`, request.fromId), {
+        friendId: request.fromId,
+        friendName: request.fromName,
+        friendPhoto: request.fromPhoto,
+        createdAt: new Date().toISOString()
+      });
+      // Add to other user's friends
+      await setDoc(doc(db, `users/${request.fromId}/friends`, user.uid), {
+        friendId: user.uid,
+        friendName: user.displayName,
+        friendPhoto: user.photoURL,
+        createdAt: new Date().toISOString()
+      });
+      // Update request status
+      await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'accepted' }, { merge: true });
+    } catch (err) {
+      console.error('Accept friend error:', err);
+    }
+  };
+
+  const inviteToChannel = async (friend: Friendship) => {
+    if (!activeServer) return;
+    try {
+      await setDoc(doc(db, `servers/${activeServer.id}/members`, friend.friendId), {
+        uid: friend.friendId,
+        role: 'member',
+        joinedAt: new Date().toISOString()
+      });
+      alert(`Invited ${friend.friendName} to ${activeServer.name}`);
+    } catch (err) {
+      console.error('Invite error:', err);
+    }
+  };
+
   if (loading) return <div className="h-screen w-full flex items-center justify-center bg-discord-darkest text-white">Loading...</div>;
 
   if (!user) return <LoginScreen onLogin={loginWithGoogle} />;
@@ -195,18 +312,25 @@ export default function App() {
       {/* Server Sidebar */}
       <div className="w-[72px] bg-discord-darkest flex flex-col items-center py-3 gap-2 flex-shrink-0">
         <ServerIcon 
-          name="Home" 
-          active={!activeServer} 
-          onClick={() => setActiveServer(null)} 
-          icon={<MessageSquare size={28} />}
+          name="Friends" 
+          active={showFriendsView} 
+          onClick={() => {
+            setShowFriendsView(true);
+            setActiveServer(null);
+          }} 
+          icon={<Users size={28} />}
+          className={showFriendsView ? "bg-discord-blurple text-white" : ""}
         />
         <div className="w-8 h-[2px] bg-discord-dark rounded-full my-1" />
         {servers.map(server => (
           <ServerIcon 
             key={server.id}
             name={server.name}
-            active={activeServer?.id === server.id}
-            onClick={() => setActiveServer(server)}
+            active={activeServer?.id === server.id && !showFriendsView}
+            onClick={() => {
+              setActiveServer(server);
+              setShowFriendsView(false);
+            }}
             image={server.iconURL}
           />
         ))}
@@ -221,11 +345,21 @@ export default function App() {
       {/* Channel Sidebar */}
       <div className="w-60 bg-discord-sidebar flex flex-col flex-shrink-0">
         <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
-          <h1 className="font-bold truncate">{activeServer?.name || 'Direct Messages'}</h1>
+          <h1 className="font-bold truncate">{showFriendsView ? 'Friends' : (activeServer?.name || 'Direct Messages')}</h1>
         </div>
         
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {activeServer && (
+          {showFriendsView ? (
+            <div className="space-y-2">
+              <button 
+                onClick={() => {}} 
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-discord-dark text-discord-text"
+              >
+                <Users size={20} />
+                <span className="font-medium">Friends</span>
+              </button>
+            </div>
+          ) : activeServer && (
             <div>
               <div className="flex items-center justify-between px-2 mb-1 group">
                 <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
@@ -263,7 +397,117 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 bg-discord-dark flex flex-col min-w-0">
         <AnimatePresence mode="wait">
-          {activeChannel ? (
+          {showFriendsView ? (
+            <motion.div 
+              key="friends-view"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col"
+            >
+              <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Users size={24} className="text-discord-muted" />
+                  <h2 className="font-bold">Friends</h2>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                {/* Search Section */}
+                <section>
+                  <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Add Friend</h3>
+                  <form onSubmit={handleSearchUsers} className="flex gap-2">
+                    <div className="flex-1 bg-discord-darker rounded px-4 py-2 flex items-center gap-2">
+                      <Mail size={18} className="text-discord-muted" />
+                      <input 
+                        value={searchEmail}
+                        onChange={(e) => setSearchEmail(e.target.value)}
+                        placeholder="Enter email to search..."
+                        className="bg-transparent border-none outline-none text-discord-text w-full"
+                      />
+                    </div>
+                    <button type="submit" className="bg-discord-blurple px-4 py-2 rounded font-bold hover:bg-opacity-90 transition-all">
+                      Search
+                    </button>
+                  </form>
+                  
+                  {searchResults.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {searchResults.map(res => (
+                        <div key={res.uid} className="bg-discord-darker p-3 rounded flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <img src={res.photoURL} className="w-10 h-10 rounded-full" />
+                            <div>
+                              <p className="font-bold">{res.displayName}</p>
+                              <p className="text-xs text-discord-muted">{res.email}</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => sendFriendRequest(res)}
+                            className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all"
+                          >
+                            <UserPlus size={20} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Requests Section */}
+                {friendRequests.length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Pending Requests</h3>
+                    <div className="space-y-2">
+                      {friendRequests.map(req => (
+                        <div key={req.id} className="bg-discord-darker p-3 rounded flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <img src={req.fromPhoto} className="w-10 h-10 rounded-full" />
+                            <p className="font-bold">{req.fromName}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => acceptFriendRequest(req)}
+                              className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all"
+                            >
+                              <Check size={20} />
+                            </button>
+                            <button className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all">
+                              <X size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Friends List */}
+                <section>
+                  <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">All Friends — {friends.length}</h3>
+                  <div className="space-y-2">
+                    {friends.map(friend => (
+                      <div key={friend.friendId} className="bg-discord-darker p-3 rounded flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <img src={friend.friendPhoto} className="w-10 h-10 rounded-full" />
+                          <p className="font-bold">{friend.friendName}</p>
+                        </div>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button className="p-2 text-discord-muted hover:text-discord-text"><MessageSquare size={20} /></button>
+                          <button className="p-2 text-discord-muted hover:text-discord-text"><Settings size={20} /></button>
+                        </div>
+                      </div>
+                    ))}
+                    {friends.length === 0 && (
+                      <div className="text-center py-8 text-discord-muted">
+                        <p>No friends yet. Start by searching for users!</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </motion.div>
+          ) : activeChannel ? (
             <motion.div 
               key={activeChannel.id}
               initial={{ opacity: 0, y: 10 }}
@@ -278,6 +522,7 @@ export default function App() {
                   <h2 className="font-bold">{activeChannel.name}</h2>
                 </div>
                 <div className="flex items-center gap-4 text-discord-muted">
+                  <InviteDropdown friends={friends} onInvite={inviteToChannel} />
                   {activeChannel.type === 'text' && (
                     <button onClick={handleSummarize} className="hover:text-discord-text flex items-center gap-1 text-sm font-medium">
                       <Sparkles size={18} />
@@ -313,6 +558,42 @@ export default function App() {
           )}
         </AnimatePresence>
       </div>
+    </div>
+  );
+}
+
+function InviteDropdown({ friends, onInvite }: { friends: Friendship[], onInvite: (f: Friendship) => void }) {
+  const [open, setOpen] = useState(false);
+  
+  return (
+    <div className="relative">
+      <button 
+        onClick={() => setOpen(!open)}
+        className="bg-discord-green text-white text-xs font-bold px-3 py-1 rounded hover:bg-opacity-90 transition-all"
+      >
+        Invite
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-56 bg-discord-darkest rounded-lg shadow-xl border border-discord-dark p-2 z-50">
+          <p className="text-xs font-bold text-discord-muted px-2 mb-2 uppercase">Invite Friends</p>
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {friends.map(friend => (
+              <button 
+                key={friend.friendId}
+                onClick={() => {
+                  onInvite(friend);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center gap-2 p-2 hover:bg-discord-blurple rounded transition-colors text-left"
+              >
+                <img src={friend.friendPhoto} className="w-6 h-6 rounded-full" />
+                <span className="text-sm truncate">{friend.friendName}</span>
+              </button>
+            ))}
+            {friends.length === 0 && <p className="text-xs text-discord-muted p-2">No friends to invite.</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

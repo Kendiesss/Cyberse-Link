@@ -47,10 +47,32 @@ service cloud.firestore {
              data.content is string && data.content.size() > 0 && data.content.size() < 2000;
     }
 
+    function isValidFriendRequest(data) {
+      return data.keys().hasAll(['id', 'fromId', 'toId', 'status']) &&
+             data.fromId is string && data.toId is string &&
+             data.status in ['pending', 'accepted', 'declined'];
+    }
+
+    function isServerMember(serverId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/servers/$(serverId)/members/$(request.auth.uid));
+    }
+
     // Rules
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+
+      match /friendRequests/{requestId} {
+        allow read: if isOwner(userId);
+        allow create: if isAuthenticated() && isValidFriendRequest(request.resource.data) && (request.resource.data.fromId == request.auth.uid || request.resource.data.toId == request.auth.uid);
+        allow update: if isOwner(userId) && request.resource.data.status in ['accepted', 'declined'];
+        allow delete: if isOwner(userId);
+      }
+
+      match /friends/{friendId} {
+        allow read: if isOwner(userId);
+        allow create, delete: if isOwner(userId);
+      }
     }
 
     match /servers/{serverId} {
@@ -58,14 +80,20 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidServer(request.resource.data);
       allow update, delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
 
-      match /channels/{channelId} {
+      match /members/{memberId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && isValidChannel(request.resource.data);
+        allow create: if isAuthenticated(); // Allow joining
+        allow delete: if isAuthenticated() && (memberId == request.auth.uid || get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid);
+      }
+
+      match /channels/{channelId} {
+        allow read: if isServerMember(serverId);
+        allow create: if isAuthenticated() && isValidChannel(request.resource.data) && get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid;
         allow update, delete: if isAuthenticated() && get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid;
 
         match /messages/{messageId} {
-          allow read: if isAuthenticated();
-          allow create: if isAuthenticated() && isValidMessage(request.resource.data) && request.resource.data.authorId == request.auth.uid;
+          allow read: if isServerMember(serverId);
+          allow create: if isServerMember(serverId) && isValidMessage(request.resource.data) && request.resource.data.authorId == request.auth.uid;
           allow delete: if isAuthenticated() && (resource.data.authorId == request.auth.uid || get(/databases/$(database)/documents/servers/$(serverId)).data.ownerId == request.auth.uid);
         }
       }
