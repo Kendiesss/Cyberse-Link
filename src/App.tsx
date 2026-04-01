@@ -117,6 +117,29 @@ export default function App() {
     return unsubscribe;
   }, [user, activeServer, activeChannel]);
 
+  // Fetch Server Members
+  const [serverMembers, setServerMembers] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!activeServer) {
+      setServerMembers([]);
+      return;
+    }
+    const q = query(collection(db, `servers/${activeServer.id}/members`));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const memberIds = snapshot.docs.map(doc => doc.id);
+      if (memberIds.length === 0) {
+        setServerMembers([]);
+        return;
+      }
+      
+      // Fetch user profiles for these members
+      const usersQ = query(collection(db, 'users'), where('uid', 'in', memberIds));
+      const usersSnapshot = await getDocs(usersQ);
+      setServerMembers(usersSnapshot.docs.map(doc => doc.data() as UserProfile));
+    });
+    return unsubscribe;
+  }, [activeServer]);
+
   const handleCreateServer = async () => {
     if (!user) return;
     const name = prompt('Enter server name:');
@@ -289,6 +312,15 @@ export default function App() {
     }
   };
 
+  const rejectFriendRequest = async (request: FriendRequest) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, `users/${user.uid}/friendRequests`, request.id), { status: 'declined' }, { merge: true });
+    } catch (err) {
+      console.error('Reject friend error:', err);
+    }
+  };
+
   const inviteToChannel = async (friend: Friendship) => {
     if (!activeServer) return;
     try {
@@ -300,6 +332,29 @@ export default function App() {
       alert(`Invited ${friend.friendName} to ${activeServer.name}`);
     } catch (err) {
       console.error('Invite error:', err);
+    }
+  };
+
+  const addMemberByEmail = async () => {
+    if (!activeServer) return;
+    const email = prompt('Enter user email to add to server:');
+    if (!email) return;
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', email.trim()));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        alert('User not found');
+        return;
+      }
+      const targetUser = snapshot.docs[0].data() as UserProfile;
+      await setDoc(doc(db, `servers/${activeServer.id}/members`, targetUser.uid), {
+        uid: targetUser.uid,
+        role: 'member',
+        joinedAt: new Date().toISOString()
+      });
+      alert(`Added ${targetUser.displayName} to ${activeServer.name}`);
+    } catch (err) {
+      console.error('Add member error:', err);
     }
   };
 
@@ -360,24 +415,46 @@ export default function App() {
               </button>
             </div>
           ) : activeServer && (
-            <div>
-              <div className="flex items-center justify-between px-2 mb-1 group">
-                <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
-                <button onClick={handleCreateChannel} className="text-discord-muted hover:text-discord-text transition-colors">
-                  <Plus size={14} />
-                </button>
+            <>
+              <div>
+                <div className="flex items-center justify-between px-2 mb-1 group">
+                  <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
+                  <button onClick={handleCreateChannel} className="text-discord-muted hover:text-discord-text transition-colors">
+                    <Plus size={14} />
+                  </button>
+                </div>
+                <div className="space-y-0.5">
+                  {channels.map(channel => (
+                    <ChannelItem 
+                      key={channel.id}
+                      channel={channel}
+                      active={activeChannel?.id === channel.id}
+                      onClick={() => setActiveChannel(channel)}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                {channels.map(channel => (
-                  <ChannelItem 
-                    key={channel.id}
-                    channel={channel}
-                    active={activeChannel?.id === channel.id}
-                    onClick={() => setActiveChannel(channel)}
-                  />
-                ))}
+              
+              <div className="mt-6">
+                <div className="flex items-center justify-between px-2 mb-1 group">
+                  <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Members — {serverMembers.length}</span>
+                  <button onClick={addMemberByEmail} className="text-discord-muted hover:text-discord-text transition-colors" title="Add Member by Email">
+                    <UserPlus size={14} />
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {serverMembers.map(member => (
+                    <div key={member.uid} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-discord-dark transition-colors cursor-default group">
+                      <div className="relative">
+                        <img src={member.photoURL} className="w-6 h-6 rounded-full" />
+                        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-discord-green border-2 border-discord-sidebar rounded-full" />
+                      </div>
+                      <span className="text-sm text-discord-muted group-hover:text-discord-text truncate">{member.displayName}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
 
@@ -468,11 +545,16 @@ export default function App() {
                           <div className="flex gap-2">
                             <button 
                               onClick={() => acceptFriendRequest(req)}
-                              className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all"
+                              className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
+                              title="Accept"
                             >
                               <Check size={20} />
                             </button>
-                            <button className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all">
+                            <button 
+                              onClick={() => rejectFriendRequest(req)}
+                              className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white"
+                              title="Decline"
+                            >
                               <X size={20} />
                             </button>
                           </div>
