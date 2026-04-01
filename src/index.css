@@ -1,20 +1,32 @@
 @import "tailwindcss";
 
 @theme {
-  --color-discord-dark: #313338;
-  --color-discord-darker: #2b2d31;
-  --color-discord-darkest: #1e1f22;
-  --color-discord-sidebar: #232428;
-  --color-discord-blurple: #5865f2;
-  --color-discord-green: #23a559;
-  --color-discord-text: #dbdee1;
-  --color-discord-muted: #949ba4;
+  --color-cyberse-bg: #050a14;
+  --color-cyberse-dark: #0c1631;
+  --color-cyberse-darker: #1a2a4a;
+  --color-cyberse-sidebar: #081021;
+  --color-cyberse-glow: #00f2ff;
+  --color-cyberse-link: #ff4d00;
+  --color-cyberse-purple: #9d4edd;
+  --color-cyberse-text: #e0e7ff;
+  --color-cyberse-muted: #7c8db5;
 }
 
 @layer base {
   body {
-    @apply bg-discord-dark text-discord-text antialiased;
+    @apply bg-cyberse-bg text-cyberse-text antialiased;
   }
+}
+
+.cyberse-grid {
+  background-image: 
+    linear-gradient(to right, rgba(0, 242, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 242, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.cyberse-hex {
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
 }
 
 .scrollbar-hide::-webkit-scrollbar {

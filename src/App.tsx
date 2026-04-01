@@ -17,6 +17,7 @@ const socket = io();
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [started, setStarted] = useState(false);
   const [activeServer, setActiveServer] = useState<Server | null>(null);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
@@ -371,14 +372,23 @@ export default function App() {
     }
   };
 
-  if (loading) return <div className="h-screen w-full flex items-center justify-center bg-discord-darkest text-white">Loading...</div>;
+  if (loading) return <div className="h-screen w-full flex items-center justify-center bg-cyberse-bg text-white">Loading...</div>;
 
-  if (!user) return <LoginScreen onLogin={loginWithGoogle} />;
+  if (!user) {
+    return (
+      <div className="h-screen w-full overflow-y-auto scroll-smooth bg-cyberse-bg cyberse-grid">
+        {!started && <HeroSection onGetStarted={() => setStarted(true)} />}
+        <div id="login-section" className="h-screen w-full flex items-center justify-center">
+          <LoginScreen onLogin={loginWithGoogle} />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="h-screen w-full flex overflow-hidden">
+    <div className="h-screen w-full flex overflow-hidden bg-cyberse-bg cyberse-grid">
       {/* Server Sidebar */}
-      <div className="w-[72px] bg-discord-darkest flex flex-col items-center py-3 gap-2 flex-shrink-0">
+      <div className="w-[72px] bg-cyberse-sidebar flex flex-col items-center py-3 gap-2 flex-shrink-0 border-r border-white/5">
         <ServerIcon 
           name="Friends" 
           active={showFriendsView} 
@@ -387,10 +397,10 @@ export default function App() {
             setActiveServer(null);
           }} 
           icon={<Users size={28} />}
-          className={showFriendsView ? "bg-discord-blurple text-white" : ""}
+          className={showFriendsView ? "bg-cyberse-glow text-cyberse-bg" : ""}
           badge={friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length}
         />
-        <div className="w-8 h-[2px] bg-discord-dark rounded-full my-1" />
+        <div className="w-8 h-[2px] bg-white/10 rounded-full my-1" />
         {servers.map(server => (
           <ServerIcon 
             key={server.id}
@@ -407,14 +417,14 @@ export default function App() {
           name="Add Server" 
           onClick={() => setShowCreateServer(true)} 
           icon={<Plus size={28} />}
-          className="text-discord-green hover:bg-discord-green hover:text-white"
+          className="text-cyberse-glow hover:bg-cyberse-glow hover:text-cyberse-bg"
         />
       </div>
 
       {/* Channel Sidebar */}
-      <div className="w-60 bg-discord-sidebar flex flex-col flex-shrink-0">
-        <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
-          <h1 className="font-bold truncate">{showFriendsView ? 'Friends' : (activeServer?.name || 'Direct Messages')}</h1>
+      <div className="w-60 bg-cyberse-dark/40 backdrop-blur-xl flex flex-col flex-shrink-0 border-r border-white/5">
+        <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 shadow-sm">
+          <h1 className="font-bold truncate text-white">{showFriendsView ? 'Friends' : (activeServer?.name || 'Direct Messages')}</h1>
         </div>
         
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
@@ -422,25 +432,25 @@ export default function App() {
             <div className="space-y-2">
               <button 
                 onClick={() => {}} 
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-discord-dark text-discord-text"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)] border border-cyberse-glow/20"
               >
-                <Users size={20} />
-                <span className="font-medium">Friends</span>
+                <Users size={20} className="text-cyberse-glow" />
+                <span className="font-medium text-sm">Friends</span>
               </button>
               <button 
                 onClick={() => setShowAddFriend(true)} 
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-discord-muted hover:bg-discord-dark hover:text-discord-text transition-all"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-cyberse-muted hover:bg-white/5 hover:text-white transition-all group"
               >
-                <UserPlus size={20} />
-                <span className="font-medium">Add Friend</span>
+                <UserPlus size={20} className="group-hover:text-cyberse-glow transition-colors" />
+                <span className="font-medium text-sm">Add Friend</span>
               </button>
             </div>
           ) : activeServer && (
             <>
               <div>
                 <div className="flex items-center justify-between px-2 mb-1 group">
-                  <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Channels</span>
-                  <button onClick={() => setShowCreateChannel(true)} className="text-discord-muted hover:text-discord-text transition-colors">
+                  <span className="text-[10px] font-bold text-cyberse-muted uppercase tracking-widest">Channels</span>
+                  <button onClick={() => setShowCreateChannel(true)} className="text-cyberse-muted hover:text-cyberse-glow transition-colors" title="Create Channel">
                     <Plus size={14} />
                   </button>
                 </div>
@@ -457,20 +467,20 @@ export default function App() {
               </div>
               
               <div className="mt-6">
-                <div className="flex items-center justify-between px-2 mb-1 group">
-                  <span className="text-xs font-semibold text-discord-muted uppercase tracking-wider">Members — {serverMembers.length}</span>
-                  <button onClick={() => setShowInviteFriends(true)} className="text-discord-muted hover:text-discord-text transition-colors" title="Invite Friends">
+                <div className="flex items-center justify-between px-2 mb-2 group">
+                  <span className="text-[10px] font-bold text-cyberse-muted uppercase tracking-widest">Members — {serverMembers.length}</span>
+                  <button onClick={() => setShowInviteFriends(true)} className="text-cyberse-muted hover:text-cyberse-glow transition-colors" title="Invite Friends">
                     <UserPlus size={14} />
                   </button>
                 </div>
                 <div className="space-y-1">
                   {serverMembers.map(member => (
-                    <div key={member.uid} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-discord-dark transition-colors cursor-default group">
+                    <div key={member.uid} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-all cursor-default group">
                       <div className="relative">
-                        <img src={member.photoURL} className="w-6 h-6 rounded-full" />
-                        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-discord-green border-2 border-discord-sidebar rounded-full" />
+                        <img src={member.photoURL} className="w-7 h-7 rounded-lg border border-white/10" />
+                        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-cyberse-glow border-2 border-cyberse-dark rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />
                       </div>
-                      <span className="text-sm text-discord-muted group-hover:text-discord-text truncate">{member.displayName}</span>
+                      <span className="text-sm text-cyberse-muted group-hover:text-white truncate transition-colors">{member.displayName}</span>
                     </div>
                   ))}
                 </div>
@@ -480,20 +490,23 @@ export default function App() {
         </div>
 
         {/* User Info */}
-        <div className="h-14 bg-discord-darker px-2 flex items-center gap-2">
-          <img src={user.photoURL || ''} className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold truncate leading-tight">{user.displayName}</p>
-            <p className="text-xs text-discord-muted truncate">#{user.uid.slice(0, 4)}</p>
+        <div className="h-14 bg-cyberse-dark/60 backdrop-blur-md px-2 flex items-center gap-2 border-t border-white/5">
+          <div className="relative">
+            <img src={user.photoURL || ''} className="w-8 h-8 rounded-xl border border-white/10" referrerPolicy="no-referrer" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-cyberse-glow border-2 border-cyberse-bg rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />
           </div>
-          <button onClick={logout} className="p-2 text-discord-muted hover:text-discord-text hover:bg-discord-dark rounded transition-colors">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold truncate leading-tight text-white">{user.displayName}</p>
+            <p className="text-xs text-cyberse-muted truncate tracking-tighter">ID: {user.uid.slice(0, 8)}</p>
+          </div>
+          <button onClick={logout} className="p-2 text-cyberse-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Logout">
             <LogOut size={18} />
           </button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 bg-discord-dark flex flex-col min-w-0">
+      <div className="flex-1 bg-cyberse-bg/50 backdrop-blur-sm flex flex-col min-w-0">
         <AnimatePresence mode="wait">
           {showFriendsView ? (
             <motion.div 
@@ -503,38 +516,38 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col"
             >
-              <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
+              <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 shadow-sm">
                 <div className="flex items-center gap-2">
-                  <Users size={24} className="text-discord-muted" />
-                  <h2 className="font-bold">Friends</h2>
+                  <Users size={24} className="text-cyberse-glow" />
+                  <h2 className="font-bold text-white">Friends</h2>
                 </div>
                 <div className="flex gap-4 text-sm font-medium">
                   <button 
                     onClick={() => setFriendsFilter('online')}
-                    className={cn(friendsFilter === 'online' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                    className={cn(friendsFilter === 'online' ? "text-cyberse-glow" : "text-cyberse-muted hover:text-white transition-colors")}
                   >
                     Online
                   </button>
                   <button 
                     onClick={() => setFriendsFilter('all')}
-                    className={cn(friendsFilter === 'all' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                    className={cn(friendsFilter === 'all' ? "text-cyberse-glow" : "text-cyberse-muted hover:text-white transition-colors")}
                   >
                     All
                   </button>
                   <button 
                     onClick={() => setFriendsFilter('pending')}
-                    className={cn(friendsFilter === 'pending' ? "text-discord-text" : "text-discord-muted hover:text-discord-text")}
+                    className={cn(friendsFilter === 'pending' ? "text-cyberse-glow" : "text-cyberse-muted hover:text-white transition-colors")}
                   >
                     Pending
                     {friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length > 0 && (
-                      <span className="ml-1 bg-red-500 text-white text-[10px] px-1 rounded-full">
+                      <span className="ml-1 bg-cyberse-link text-white text-[10px] px-1.5 rounded-full font-bold">
                         {friendRequests.filter(r => r.status === 'pending' && r.toId === user.uid).length}
                       </span>
                     )}
                   </button>
                   <button 
                     onClick={() => setShowAddFriend(true)}
-                    className="bg-discord-green text-white px-2 py-0.5 rounded hover:bg-opacity-90 transition-all"
+                    className="bg-cyberse-glow text-cyberse-bg px-3 py-1 rounded-lg font-bold hover:scale-105 active:scale-95 transition-all shadow-[0_0_10px_rgba(0,242,255,0.3)]"
                   >
                     Add Friend
                   </button>
@@ -544,21 +557,21 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
                 {friendsFilter === 'pending' ? (
                   <section>
-                    <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">Pending Requests</h3>
+                    <h3 className="text-xs font-bold text-cyberse-muted uppercase tracking-widest mb-4">Pending Requests</h3>
                     <div className="space-y-2">
                       {friendRequests.filter(r => r.status === 'pending').map(req => (
-                        <div key={req.id} className="bg-discord-darker p-3 rounded flex items-center justify-between group hover:bg-discord-dark transition-all">
+                        <div key={req.id} className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all">
                           <div className="flex items-center gap-3">
                             <img 
                               src={req.fromId === user.uid ? 'https://api.dicebear.com/7.x/initials/svg?seed=' + req.toId : req.fromPhoto} 
-                              className="w-10 h-10 rounded-full" 
+                              className="w-10 h-10 rounded-xl border border-white/10" 
                               referrerPolicy="no-referrer"
                             />
                             <div>
-                              <p className="font-bold">
+                              <p className="font-bold text-white">
                                 {req.fromId === user.uid ? `Request to ${req.toId.substring(0, 8)}` : req.fromName}
                               </p>
-                              <p className="text-xs text-discord-muted">
+                              <p className="text-xs text-cyberse-muted">
                                 {req.fromId === user.uid ? 'Outgoing Friend Request' : 'Incoming Friend Request'}
                               </p>
                             </div>
@@ -568,14 +581,14 @@ export default function App() {
                               <>
                                 <button 
                                   onClick={() => acceptFriendRequest(req)}
-                                  className="bg-discord-green p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg"
+                                  className="bg-cyberse-glow p-2 rounded-lg hover:scale-110 transition-all text-cyberse-bg shadow-lg"
                                   title="Accept"
                                 >
                                   <Check size={20} />
                                 </button>
                                 <button 
                                   onClick={() => rejectFriendRequest(req)}
-                                  className="bg-red-500 p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg"
+                                  className="bg-red-500 p-2 rounded-lg hover:scale-110 transition-all text-white shadow-lg"
                                   title="Decline"
                                 >
                                   <X size={20} />
@@ -584,7 +597,7 @@ export default function App() {
                             ) : (
                               <button 
                                 onClick={() => rejectFriendRequest(req)}
-                                className="p-2 text-discord-muted hover:text-red-500 transition-all"
+                                className="p-2 text-cyberse-muted hover:text-red-500 transition-all"
                                 title="Cancel Request"
                               >
                                 <X size={20} />
@@ -594,37 +607,37 @@ export default function App() {
                         </div>
                       ))}
                       {friendRequests.filter(r => r.status === 'pending').length === 0 && (
-                        <p className="text-center py-8 text-discord-muted italic">No pending requests.</p>
+                        <p className="text-center py-8 text-cyberse-muted italic">No pending requests.</p>
                       )}
                     </div>
                   </section>
                 ) : (
                   <section>
-                    <h3 className="text-xs font-semibold text-discord-muted uppercase tracking-wider mb-4">
+                    <h3 className="text-xs font-bold text-cyberse-muted uppercase tracking-widest mb-4">
                       {friendsFilter === 'online' ? 'Online Friends' : 'All Friends'} — {friends.length}
                     </h3>
                     <div className="space-y-2">
                       {friends.map(friend => (
-                        <div key={friend.friendId} className="bg-discord-darker p-3 rounded flex items-center justify-between group hover:bg-discord-dark transition-all">
+                        <div key={friend.friendId} className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all">
                           <div className="flex items-center gap-3">
                             <div className="relative">
-                              <img src={friend.friendPhoto} className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
-                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-discord-green border-2 border-discord-darker rounded-full" />
+                              <img src={friend.friendPhoto} className="w-10 h-10 rounded-xl border border-white/10" referrerPolicy="no-referrer" />
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-cyberse-glow border-2 border-cyberse-bg rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />
                             </div>
-                            <p className="font-bold">{friend.friendName}</p>
+                            <p className="font-bold text-white">{friend.friendName}</p>
                           </div>
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="p-2 bg-discord-darkest rounded-full text-discord-muted hover:text-discord-text hover:bg-discord-dark transition-all">
+                            <button className="p-2 bg-white/5 rounded-lg text-cyberse-muted hover:text-cyberse-glow hover:bg-white/10 transition-all">
                               <MessageSquare size={20} />
                             </button>
-                            <button className="p-2 bg-discord-darkest rounded-full text-discord-muted hover:text-discord-text hover:bg-discord-dark transition-all">
+                            <button className="p-2 bg-white/5 rounded-lg text-cyberse-muted hover:text-cyberse-glow hover:bg-white/10 transition-all">
                               <Settings size={20} />
                             </button>
                           </div>
                         </div>
                       ))}
                       {friends.length === 0 && (
-                        <div className="text-center py-8 text-discord-muted">
+                        <div className="text-center py-8 text-cyberse-muted">
                           <p>No friends found. Start by searching for users!</p>
                         </div>
                       )}
@@ -642,20 +655,20 @@ export default function App() {
               transition={{ duration: 0.2 }}
               className="flex-1 flex flex-col min-h-0"
             >
-              <div className="h-12 px-4 flex items-center justify-between border-b border-discord-darkest shadow-sm">
+              <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 shadow-sm">
                 <div className="flex items-center gap-2">
-                  {activeChannel.type === 'text' ? <Hash size={24} className="text-discord-muted" /> : <Volume2 size={24} className="text-discord-muted" />}
-                  <h2 className="font-bold">{activeChannel.name}</h2>
+                  {activeChannel.type === 'text' ? <Hash size={24} className="text-cyberse-muted" /> : <Volume2 size={24} className="text-cyberse-muted" />}
+                  <h2 className="font-bold text-white">{activeChannel.name}</h2>
                 </div>
-                <div className="flex items-center gap-4 text-discord-muted">
+                <div className="flex items-center gap-4 text-cyberse-muted">
                   <InviteDropdown friends={friends} onInvite={inviteToChannel} />
                   {activeChannel.type === 'text' && (
-                    <button onClick={handleSummarize} className="hover:text-discord-text flex items-center gap-1 text-sm font-medium">
+                    <button onClick={handleSummarize} className="hover:text-cyberse-glow flex items-center gap-1 text-sm font-medium transition-colors">
                       <Sparkles size={18} />
                       Summarize
                     </button>
                   )}
-                  <Settings size={20} className="hover:text-discord-text cursor-pointer" />
+                  <Settings size={20} className="hover:text-cyberse-glow cursor-pointer transition-colors" />
                 </div>
               </div>
 
@@ -673,13 +686,13 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-1 flex flex-col items-center justify-center text-discord-muted p-8 text-center"
+              className="flex-1 flex flex-col items-center justify-center text-cyberse-muted p-8 text-center"
             >
-              <div className="w-24 h-24 bg-discord-darker rounded-full flex items-center justify-center mb-4">
-                <MessageSquare size={48} />
+              <div className="w-24 h-24 bg-cyberse-dark/40 border border-cyberse-glow/30 rounded-3xl flex items-center justify-center mb-6 cyberse-hex shadow-[0_0_20px_rgba(0,242,255,0.2)]">
+                <MessageSquare size={48} className="text-cyberse-glow" />
               </div>
-              <h2 className="text-2xl font-bold text-discord-text mb-2">Welcome to Cyberse Link</h2>
-              <p className="max-w-md">Select a server and channel to start communicating. Use @ai to talk to the assistant!</p>
+              <h2 className="text-3xl font-bold text-white mb-2">Welcome to Cyberse Link</h2>
+              <p className="max-w-md text-cyberse-muted">Select a server and channel to start communicating. Use @ai to talk to the assistant!</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -716,15 +729,15 @@ export default function App() {
 function InviteFriendsModal({ isOpen, onClose, friends, onInvite }: any) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Invite Friends to Server">
-      <p className="text-discord-muted mb-6">Select friends to invite them to this server.</p>
+      <p className="text-cyberse-muted mb-6">Select friends to invite them to this server.</p>
       <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
         {friends.map((friend: Friendship) => (
-          <div key={friend.friendId} className="bg-discord-darkest p-3 rounded flex items-center justify-between group hover:bg-discord-darker transition-all">
+          <div key={friend.friendId} className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all">
             <div className="flex items-center gap-3">
-              <img src={friend.friendPhoto} className="w-10 h-10 rounded-full border-2 border-transparent group-hover:border-discord-blurple transition-all" referrerPolicy="no-referrer" />
+              <img src={friend.friendPhoto} className="w-10 h-10 rounded-xl border border-white/10 group-hover:border-cyberse-glow transition-all" referrerPolicy="no-referrer" />
               <div>
-                <p className="font-bold">{friend.friendName}</p>
-                <p className="text-xs text-discord-muted">Friend</p>
+                <p className="font-bold text-white">{friend.friendName}</p>
+                <p className="text-xs text-cyberse-muted">Friend</p>
               </div>
             </div>
             <button 
@@ -732,14 +745,14 @@ function InviteFriendsModal({ isOpen, onClose, friends, onInvite }: any) {
                 onInvite(friend);
                 onClose();
               }}
-              className="bg-discord-green text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-opacity-90 transition-all"
+              className="bg-cyberse-glow text-cyberse-bg px-4 py-1.5 rounded-lg text-sm font-bold hover:scale-105 active:scale-95 transition-all shadow-[0_0_10px_rgba(0,242,255,0.3)]"
             >
               Invite
             </button>
           </div>
         ))}
         {friends.length === 0 && (
-          <div className="text-center py-8 text-discord-muted">
+          <div className="text-center py-8 text-cyberse-muted">
             <p>No friends to invite. Add some friends first!</p>
           </div>
         )}
@@ -755,14 +768,14 @@ function InviteDropdown({ friends, onInvite }: { friends: Friendship[], onInvite
     <div className="relative">
       <button 
         onClick={() => setOpen(!open)}
-        className="bg-discord-green text-white text-xs font-bold px-3 py-1 rounded hover:bg-opacity-90 transition-all"
+        className="bg-cyberse-glow text-cyberse-bg text-xs font-bold px-3 py-1 rounded-lg hover:scale-105 transition-all shadow-[0_0_10px_rgba(0,242,255,0.3)]"
       >
         Invite
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-56 bg-discord-darkest rounded-lg shadow-xl border border-discord-dark p-2 z-50">
-          <p className="text-xs font-bold text-discord-muted px-2 mb-2 uppercase">Invite Friends</p>
-          <div className="max-h-48 overflow-y-auto space-y-1">
+        <div className="absolute right-0 mt-2 w-56 bg-cyberse-dark/90 backdrop-blur-xl rounded-xl shadow-2xl border border-white/10 p-2 z-50">
+          <p className="text-[10px] font-bold text-cyberse-muted px-2 mb-2 uppercase tracking-widest">Invite Friends</p>
+          <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
             {friends.map(friend => (
               <button 
                 key={friend.friendId}
@@ -770,13 +783,13 @@ function InviteDropdown({ friends, onInvite }: { friends: Friendship[], onInvite
                   onInvite(friend);
                   setOpen(false);
                 }}
-                className="w-full flex items-center gap-2 p-2 hover:bg-discord-blurple rounded transition-colors text-left"
+                className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg transition-colors text-left group"
               >
-                <img src={friend.friendPhoto} className="w-6 h-6 rounded-full" />
-                <span className="text-sm truncate">{friend.friendName}</span>
+                <img src={friend.friendPhoto} className="w-6 h-6 rounded-lg border border-white/10 group-hover:border-cyberse-glow transition-all" />
+                <span className="text-sm truncate text-white group-hover:text-cyberse-glow transition-colors">{friend.friendName}</span>
               </button>
             ))}
-            {friends.length === 0 && <p className="text-xs text-discord-muted p-2">No friends to invite.</p>}
+            {friends.length === 0 && <p className="text-[10px] text-cyberse-muted p-2 italic">No friends to invite.</p>}
           </div>
         </div>
       )}
@@ -784,23 +797,112 @@ function InviteDropdown({ friends, onInvite }: { friends: Friendship[], onInvite
   );
 }
 
+function HeroSection({ onGetStarted }: { onGetStarted: () => void }) {
+  return (
+    <div className="h-screen w-full flex flex-col items-center justify-center relative overflow-hidden px-4">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 cyberse-grid opacity-20" />
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyberse-glow/10 rounded-full blur-[128px] animate-pulse" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyberse-purple/10 rounded-full blur-[128px] animate-pulse delay-700" />
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        className="relative z-10 text-center max-w-4xl"
+      >
+        <div className="flex justify-center mb-8">
+          <div className="w-24 h-24 bg-cyberse-dark border-2 border-cyberse-glow rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(0,242,255,0.3)] cyberse-hex">
+            <Sparkles size={48} className="text-cyberse-glow" />
+          </div>
+        </div>
+        
+        <h1 className="text-6xl md:text-8xl font-black mb-6 tracking-tighter text-white">
+          CYBERSE <span className="text-cyberse-glow">LINK</span>
+        </h1>
+        
+        <p className="text-xl md:text-2xl text-cyberse-muted mb-12 leading-relaxed font-medium">
+          The next generation AI communication platform. <br className="hidden md:block" />
+          Connect, collaborate, and evolve in the digital frontier.
+        </p>
+        
+        <div className="flex flex-col md:flex-row items-center justify-center gap-6">
+          <button 
+            onClick={() => {
+              onGetStarted();
+              document.getElementById('login-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="group relative px-8 py-4 bg-cyberse-glow text-cyberse-bg font-bold rounded-xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(0,242,255,0.4)]"
+          >
+            <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
+            <span className="relative flex items-center gap-2 text-lg">
+              GET STARTED <Check size={20} />
+            </span>
+          </button>
+          
+          <button className="px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl border border-white/10 backdrop-blur-md transition-all">
+            LEARN MORE
+          </button>
+        </div>
+      </motion.div>
+      
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.5, duration: 1 }}
+        className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-cyberse-muted"
+      >
+        <span className="text-xs font-bold tracking-widest uppercase">Scroll to Explore</span>
+        <div className="w-[1px] h-12 bg-gradient-to-b from-cyberse-glow to-transparent" />
+      </motion.div>
+    </div>
+  );
+}
+
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   return (
-    <div className="h-screen w-full flex items-center justify-center bg-discord-darkest p-4">
-      <div className="bg-discord-dark p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
-        <div className="w-20 h-20 bg-discord-blurple rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-          <Sparkles size={40} className="text-white" />
+    <div className="w-full max-w-md p-1">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        whileInView={{ opacity: 1, scale: 1 }}
+        viewport={{ once: true }}
+        className="bg-cyberse-dark/40 backdrop-blur-2xl p-8 rounded-3xl border border-white/10 shadow-2xl text-center relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyberse-glow to-transparent opacity-50" />
+        
+        <div className="w-20 h-20 bg-cyberse-darker border border-cyberse-glow/30 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg relative z-10">
+          <Sparkles size={40} className="text-cyberse-glow animate-pulse" />
         </div>
-        <h1 className="text-3xl font-bold mb-2">Cyberse Link</h1>
-        <p className="text-discord-muted mb-8">The next generation AI communication platform</p>
+        
+        <h2 className="text-3xl font-bold mb-2 text-white">Welcome Back</h2>
+        <p className="text-cyberse-muted mb-8">Access the Cyberse Link network</p>
+        
         <button 
           onClick={onLogin}
-          className="w-full bg-discord-blurple hover:bg-opacity-90 text-white font-bold py-3 px-4 rounded transition-all flex items-center justify-center gap-3"
+          className="w-full bg-white text-cyberse-bg hover:bg-cyberse-glow transition-all font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 group shadow-xl"
         >
           <img src="https://www.google.com/favicon.ico" className="w-5 h-5 bg-white rounded-full p-0.5" />
-          Continue with Google
+          <span>Continue with Google</span>
+          <div className="w-0 group-hover:w-4 overflow-hidden transition-all duration-300">
+            <Check size={16} />
+          </div>
         </button>
-      </div>
+        
+        <div className="mt-8 pt-8 border-t border-white/5 flex justify-center gap-6">
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-cyberse-glow shadow-[0_0_8px_rgba(0,242,255,0.8)]" />
+            <span className="text-[10px] font-bold text-cyberse-muted uppercase tracking-tighter">Secure</span>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-cyberse-purple shadow-[0_0_8px_rgba(157,78,221,0.8)]" />
+            <span className="text-[10px] font-bold text-cyberse-muted uppercase tracking-tighter">AI Ready</span>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-cyberse-link shadow-[0_0_8px_rgba(255,77,0,0.8)]" />
+            <span className="text-[10px] font-bold text-cyberse-muted uppercase tracking-tighter">Global</span>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -809,7 +911,7 @@ function ServerIcon({ name, active, onClick, icon, image, className, badge }: an
   return (
     <div className="relative group flex items-center justify-center w-full">
       <div className={cn(
-        "absolute left-0 w-1 bg-white rounded-r-full transition-all duration-200",
+        "absolute left-0 w-1 bg-cyberse-glow rounded-r-full transition-all duration-200",
         active ? "h-10" : "h-2 group-hover:h-5 opacity-0 group-hover:opacity-100"
       )} />
       <button 
@@ -817,13 +919,13 @@ function ServerIcon({ name, active, onClick, icon, image, className, badge }: an
         title={name}
         className={cn(
           "w-12 h-12 flex items-center justify-center transition-all duration-200 overflow-hidden relative",
-          active ? "rounded-[16px] bg-discord-blurple text-white" : "rounded-[24px] bg-discord-dark hover:rounded-[16px] hover:bg-discord-blurple text-discord-text hover:text-white",
+          active ? "rounded-[16px] bg-cyberse-glow text-cyberse-bg shadow-[0_0_15px_rgba(0,242,255,0.4)]" : "rounded-[24px] bg-cyberse-dark hover:rounded-[16px] hover:bg-cyberse-glow text-cyberse-text hover:text-cyberse-bg",
           className
         )}
       >
         {image ? <img src={image} className="w-full h-full object-cover" /> : icon || name[0]}
         {badge > 0 && (
-          <div className="absolute -bottom-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-discord-darkest shadow-lg">
+          <div className="absolute -bottom-1 -right-1 bg-cyberse-link text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-cyberse-bg shadow-lg">
             {badge}
           </div>
         )}
@@ -837,12 +939,20 @@ function ChannelItem({ channel, active, onClick }: any) {
     <button 
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-2 px-2 py-1.5 rounded group transition-colors",
-        active ? "bg-discord-dark text-discord-text" : "text-discord-muted hover:bg-discord-dark hover:text-discord-text"
+        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all group relative overflow-hidden",
+        active 
+          ? "bg-cyberse-glow/10 text-white shadow-[inset_0_0_10px_rgba(0,242,255,0.1)]" 
+          : "text-cyberse-muted hover:bg-white/5 hover:text-white"
       )}
     >
-      {channel.type === 'text' ? <Hash size={20} /> : <Volume2 size={20} />}
-      <span className="font-medium truncate">{channel.name}</span>
+      {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyberse-glow shadow-[0_0_10px_rgba(0,242,255,0.5)]" />}
+      {channel.type === 'text' ? (
+        <Hash size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
+      ) : (
+        <Volume2 size={18} className={cn("transition-colors", active ? "text-cyberse-glow" : "text-cyberse-muted group-hover:text-white")} />
+      )}
+      <span className="font-medium truncate text-sm">{channel.name}</span>
+      {active && <div className="ml-auto w-1.5 h-1.5 bg-cyberse-glow rounded-full shadow-[0_0_5px_rgba(0,242,255,0.5)]" />}
     </button>
   );
 }
@@ -865,22 +975,25 @@ function ChatWindow({ messages, onSendMessage, isAIThinking }: any) {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 bg-cyberse-bg/50 backdrop-blur-sm">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
         {messages.map((msg: Message) => (
-          <div key={msg.id} className="flex gap-4 group">
-            <img src={msg.authorPhoto} className="w-10 h-10 rounded-full flex-shrink-0 mt-0.5" referrerPolicy="no-referrer" />
+          <div key={msg.id} className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="relative">
+              <img src={msg.authorPhoto} className="w-10 h-10 rounded-xl flex-shrink-0 mt-0.5 border border-white/10" referrerPolicy="no-referrer" />
+              {msg.isAI && <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-cyberse-glow rounded-full border-2 border-cyberse-bg shadow-[0_0_10px_rgba(0,242,255,0.5)]" />}
+            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className={cn("font-bold hover:underline cursor-pointer", msg.isAI && "text-discord-blurple")}>
+                <span className={cn("font-bold hover:text-cyberse-glow transition-colors cursor-pointer", msg.isAI ? "text-cyberse-glow" : "text-white")}>
                   {msg.authorName}
                 </span>
-                {msg.isAI && <span className="bg-discord-blurple text-[10px] px-1 rounded text-white font-bold uppercase">AI</span>}
-                <span className="text-xs text-discord-muted">
+                {msg.isAI && <span className="bg-cyberse-glow/20 text-cyberse-glow text-[10px] px-1.5 py-0.5 rounded border border-cyberse-glow/30 font-bold uppercase tracking-wider">AI</span>}
+                <span className="text-xs text-cyberse-muted">
                   {msg.timestamp?.toDate ? format(msg.timestamp.toDate(), 'HH:mm') : 'Just now'}
                 </span>
               </div>
-              <div className="text-discord-text leading-relaxed break-words markdown-body">
+              <div className="text-cyberse-text leading-relaxed break-words markdown-body">
                 <Markdown>{msg.content}</Markdown>
               </div>
             </div>
@@ -888,29 +1001,29 @@ function ChatWindow({ messages, onSendMessage, isAIThinking }: any) {
         ))}
         {isAIThinking && (
           <div className="flex gap-4 animate-pulse">
-            <div className="w-10 h-10 rounded-full bg-discord-darker" />
+            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10" />
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-24 bg-discord-darker rounded" />
-              <div className="h-4 w-full bg-discord-darker rounded" />
+              <div className="h-4 w-24 bg-white/5 rounded" />
+              <div className="h-4 w-full bg-white/5 rounded" />
             </div>
           </div>
         )}
       </div>
 
       <form onSubmit={handleSubmit} className="p-4">
-        <div className="bg-discord-darker rounded-lg px-4 py-2 flex items-center gap-3">
-          <button type="button" className="text-discord-muted hover:text-discord-text">
+        <div className="bg-cyberse-dark/60 backdrop-blur-md rounded-2xl px-4 py-2 flex items-center gap-3 border border-white/10 shadow-lg focus-within:border-cyberse-glow/50 transition-all">
+          <button type="button" className="text-cyberse-muted hover:text-cyberse-glow transition-colors">
             <Plus size={24} />
           </button>
           <input 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type @ai to ask the assistant..."
-            className="flex-1 bg-transparent border-none outline-none text-discord-text placeholder:text-discord-muted py-2"
+            className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-cyberse-muted py-2"
           />
-          <div className="flex items-center gap-3 text-discord-muted">
-            <button type="button" className="hover:text-discord-text"><Sparkles size={20} /></button>
-            <button type="submit" className="text-discord-blurple hover:text-opacity-80 disabled:opacity-50" disabled={!input.trim()}>
+          <div className="flex items-center gap-3 text-cyberse-muted">
+            <button type="button" className="hover:text-cyberse-glow transition-colors"><Sparkles size={20} /></button>
+            <button type="submit" className="text-cyberse-glow hover:scale-110 active:scale-95 disabled:opacity-50 transition-all" disabled={!input.trim()}>
               <Send size={20} />
             </button>
           </div>
@@ -1069,17 +1182,17 @@ function VoiceCall({ channel, user, serverId }: any) {
   }, [isVideoOn]);
 
   return (
-    <div className="flex-1 flex flex-col bg-discord-darkest p-4">
+    <div className="flex-1 flex flex-col bg-cyberse-bg p-4 cyberse-grid">
       {!inCall ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="w-20 h-20 bg-discord-dark rounded-full flex items-center justify-center mb-6">
-            <Volume2 size={40} className="text-discord-muted" />
+          <div className="w-24 h-24 bg-cyberse-dark border border-cyberse-glow/30 rounded-3xl flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(0,242,255,0.2)] cyberse-hex">
+            <Volume2 size={40} className="text-cyberse-glow animate-pulse" />
           </div>
-          <h2 className="text-2xl font-bold mb-2">Voice Channel: {channel.name}</h2>
-          <p className="text-discord-muted mb-8 max-w-sm">Hop into the call to chat with others in real-time using voice and video.</p>
+          <h2 className="text-3xl font-bold mb-2 text-white">Voice Channel: {channel.name}</h2>
+          <p className="text-cyberse-muted mb-8 max-w-sm">Hop into the call to chat with others in real-time using voice and video.</p>
           <button 
             onClick={() => setInCall(true)}
-            className="bg-discord-green hover:bg-opacity-90 text-white font-bold py-3 px-12 rounded-full transition-all"
+            className="bg-cyberse-glow hover:scale-105 active:scale-95 text-cyberse-bg font-bold py-3 px-12 rounded-xl transition-all shadow-[0_0_15px_rgba(0,242,255,0.4)]"
           >
             Join Call
           </button>
@@ -1097,11 +1210,11 @@ function VoiceCall({ channel, user, serverId }: any) {
             ))}
             
             {participants.length === 1 && (
-              <div className="bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video border border-dashed border-discord-muted opacity-50">
-                <div className="w-20 h-20 bg-discord-darker rounded-full flex items-center justify-center mb-4">
-                  <User size={40} className="text-discord-muted" />
+              <div className="bg-cyberse-dark/40 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video border border-dashed border-white/10 opacity-50">
+                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                  <User size={40} className="text-cyberse-muted" />
                 </div>
-                <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold">
+                <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded text-sm font-bold text-white">
                   Waiting for others...
                 </div>
               </div>
@@ -1109,12 +1222,12 @@ function VoiceCall({ channel, user, serverId }: any) {
           </div>
 
           {/* Call Controls */}
-          <div className="h-24 flex items-center justify-center gap-4">
+          <div className="h-24 flex items-center justify-center gap-6">
             <button 
               onClick={() => setIsMuted(!isMuted)}
               className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center transition-all",
-                isMuted ? "bg-red-500 text-white" : "bg-discord-dark text-discord-text hover:bg-discord-darker"
+                "w-14 h-14 rounded-2xl flex items-center justify-center transition-all border border-white/10 shadow-lg",
+                isMuted ? "bg-red-500/20 text-red-500 border-red-500/50" : "bg-cyberse-dark text-white hover:bg-cyberse-glow hover:text-cyberse-bg"
               )}
             >
               {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
@@ -1122,15 +1235,15 @@ function VoiceCall({ channel, user, serverId }: any) {
             <button 
               onClick={() => setIsVideoOn(!isVideoOn)}
               className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center transition-all",
-                !isVideoOn ? "bg-red-500 text-white" : "bg-discord-dark text-discord-text hover:bg-discord-darker"
+                "w-14 h-14 rounded-2xl flex items-center justify-center transition-all border border-white/10 shadow-lg",
+                !isVideoOn ? "bg-red-500/20 text-red-500 border-red-500/50" : "bg-cyberse-dark text-white hover:bg-cyberse-glow hover:text-cyberse-bg"
               )}
             >
               {!isVideoOn ? <VideoOff size={24} /> : <Video size={24} />}
             </button>
             <button 
               onClick={() => setInCall(false)}
-              className="w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-all"
+              className="w-14 h-14 rounded-2xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-all shadow-[0_0_15px_rgba(239,68,68,0.4)]"
             >
               <PhoneOff size={24} />
             </button>
@@ -1149,17 +1262,18 @@ function Modal({ isOpen, onClose, title, children }: any) {
         initial={{ opacity: 0 }} 
         animate={{ opacity: 1 }} 
         onClick={onClose}
-        className="absolute inset-0 bg-black bg-opacity-70 backdrop-blur-sm" 
+        className="absolute inset-0 bg-cyberse-bg/80 backdrop-blur-md" 
       />
       <motion.div 
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative bg-discord-dark w-full max-w-md rounded-lg shadow-2xl overflow-hidden"
+        className="relative bg-cyberse-dark/90 backdrop-blur-2xl w-full max-w-md rounded-3xl border border-white/10 shadow-2xl overflow-hidden"
       >
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyberse-glow to-transparent opacity-50" />
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-white">{title}</h2>
-            <button onClick={onClose} className="text-discord-muted hover:text-white transition-colors">
+            <button onClick={onClose} className="text-cyberse-muted hover:text-white transition-colors">
               <X size={24} />
             </button>
           </div>
@@ -1182,47 +1296,46 @@ function CreateServerModal({ isOpen, onClose, onCreate }: any) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Customize your server">
-      <p className="text-discord-muted mb-6">Give your new server a personality with a name and an icon. You can always change it later.</p>
+    <Modal isOpen={isOpen} onClose={onClose} title="Initialize New Server">
+      <p className="text-cyberse-muted mb-6">Give your new server a personality with a name and an icon. You can always change it later.</p>
       <div className="space-y-4">
         <div className="flex flex-col items-center mb-6">
-          <div className="w-20 h-20 bg-discord-darker rounded-full border-2 border-dashed border-discord-muted flex flex-col items-center justify-center text-discord-muted cursor-pointer hover:border-discord-blurple transition-colors relative overflow-hidden">
+          <div className="w-24 h-24 bg-white/5 rounded-3xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-cyberse-muted cursor-pointer hover:border-cyberse-glow hover:text-cyberse-glow transition-all relative overflow-hidden group cyberse-hex">
             {image ? <img src={image} className="w-full h-full object-cover" /> : (
               <>
-                <Plus size={24} />
-                <span className="text-[10px] font-bold uppercase">Upload</span>
+                <Plus size={32} className="group-hover:scale-110 transition-transform" />
+                <span className="text-[10px] font-bold uppercase tracking-widest mt-1">Upload</span>
               </>
             )}
           </div>
         </div>
         <div>
-          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Server Name</label>
+          <label className="text-xs font-bold text-cyberse-muted uppercase mb-2 block tracking-widest">Server Name</label>
           <input 
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter server name"
-            className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+            className="w-full bg-cyberse-bg/50 border border-white/10 p-3 rounded-xl text-white outline-none focus:border-cyberse-glow/50 focus:ring-1 focus:ring-cyberse-glow/20 transition-all"
           />
         </div>
         <div>
-          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Icon URL (Optional)</label>
+          <label className="text-xs font-bold text-cyberse-muted uppercase mb-2 block tracking-widest">Icon URL (Optional)</label>
           <input 
             value={image}
             onChange={(e) => setImage(e.target.value)}
             placeholder="https://example.com/icon.png"
-            className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+            className="w-full bg-cyberse-bg/50 border border-white/10 p-3 rounded-xl text-white outline-none focus:border-cyberse-glow/50 focus:ring-1 focus:ring-cyberse-glow/20 transition-all"
           />
         </div>
-      </div>
-      <div className="mt-8 flex justify-end gap-3">
-        <button onClick={onClose} className="px-6 py-2 text-white hover:underline">Cancel</button>
-        <button 
-          onClick={handleCreate}
-          disabled={!name.trim() || loading}
-          className="bg-discord-blurple text-white font-bold px-6 py-2 rounded hover:bg-opacity-90 transition-all disabled:opacity-50"
-        >
-          {loading ? 'Creating...' : 'Create'}
-        </button>
+        <div className="pt-4">
+          <button 
+            onClick={handleCreate}
+            disabled={!name.trim() || loading}
+            className="w-full bg-cyberse-glow text-cyberse-bg font-bold py-3 rounded-xl hover:scale-105 active:scale-95 disabled:opacity-50 transition-all shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+          >
+            {loading ? 'INITIALIZING...' : 'CREATE SERVER'}
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -1243,59 +1356,63 @@ function CreateChannelModal({ isOpen, onClose, onCreate }: any) {
     <Modal isOpen={isOpen} onClose={onClose} title="Create Channel">
       <div className="space-y-6">
         <div>
-          <label className="text-xs font-bold text-discord-muted uppercase mb-3 block">Channel Type</label>
+          <label className="text-[10px] font-bold text-cyberse-muted uppercase mb-3 block tracking-widest">Channel Type</label>
           <div className="space-y-2">
             <button 
               onClick={() => setType('text')}
               className={cn(
-                "w-full flex items-center gap-3 p-3 rounded transition-all",
-                type === 'text' ? "bg-discord-darker border border-discord-blurple" : "bg-discord-darkest hover:bg-discord-darker border border-transparent"
+                "w-full flex items-center gap-3 p-4 rounded-xl transition-all border group",
+                type === 'text' ? "bg-cyberse-glow/10 border-cyberse-glow shadow-[0_0_15px_rgba(0,242,255,0.1)]" : "bg-white/5 border-transparent hover:bg-white/10"
               )}
             >
-              <Hash size={24} className="text-discord-muted" />
-              <div className="text-left">
-                <p className="font-bold">Text</p>
-                <p className="text-xs text-discord-muted">Send messages, images, and GIFs.</p>
+              <div className={cn("p-2 rounded-lg transition-colors", type === 'text' ? "bg-cyberse-glow text-cyberse-bg" : "bg-white/10 text-cyberse-muted group-hover:text-white")}>
+                <Hash size={24} />
               </div>
-              {type === 'text' && <div className="ml-auto w-4 h-4 bg-discord-blurple rounded-full flex items-center justify-center"><Check size={12} /></div>}
+              <div className="text-left">
+                <p className="font-bold text-white">Text</p>
+                <p className="text-xs text-cyberse-muted">Send messages, images, and GIFs.</p>
+              </div>
+              {type === 'text' && <div className="ml-auto w-5 h-5 bg-cyberse-glow text-cyberse-bg rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(0,242,255,0.5)]"><Check size={14} /></div>}
             </button>
             <button 
               onClick={() => setType('voice')}
               className={cn(
-                "w-full flex items-center gap-3 p-3 rounded transition-all",
-                type === 'voice' ? "bg-discord-darker border border-discord-blurple" : "bg-discord-darkest hover:bg-discord-darker border border-transparent"
+                "w-full flex items-center gap-3 p-4 rounded-xl transition-all border group",
+                type === 'voice' ? "bg-cyberse-glow/10 border-cyberse-glow shadow-[0_0_15px_rgba(0,242,255,0.1)]" : "bg-white/5 border-transparent hover:bg-white/10"
               )}
             >
-              <Volume2 size={24} className="text-discord-muted" />
-              <div className="text-left">
-                <p className="font-bold">Voice</p>
-                <p className="text-xs text-discord-muted">Hang out with voice, video, and screen share.</p>
+              <div className={cn("p-2 rounded-lg transition-colors", type === 'voice' ? "bg-cyberse-glow text-cyberse-bg" : "bg-white/10 text-cyberse-muted group-hover:text-white")}>
+                <Volume2 size={24} />
               </div>
-              {type === 'voice' && <div className="ml-auto w-4 h-4 bg-discord-blurple rounded-full flex items-center justify-center"><Check size={12} /></div>}
+              <div className="text-left">
+                <p className="font-bold text-white">Voice</p>
+                <p className="text-xs text-cyberse-muted">Hang out with voice, video, and screen share.</p>
+              </div>
+              {type === 'voice' && <div className="ml-auto w-5 h-5 bg-cyberse-glow text-cyberse-bg rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(0,242,255,0.5)]"><Check size={14} /></div>}
             </button>
           </div>
         </div>
         <div>
-          <label className="text-xs font-bold text-discord-muted uppercase mb-2 block">Channel Name</label>
+          <label className="text-[10px] font-bold text-cyberse-muted uppercase mb-2 block tracking-widest">Channel Name</label>
           <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-discord-muted">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-cyberse-muted">
               {type === 'text' ? <Hash size={18} /> : <Volume2 size={18} />}
             </div>
             <input 
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="new-channel"
-              className="w-full bg-discord-darkest p-3 pl-10 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+              className="w-full bg-white/5 border border-white/10 p-3 pl-12 rounded-xl text-white outline-none focus:border-cyberse-glow focus:ring-1 focus:ring-cyberse-glow transition-all placeholder:text-white/20"
             />
           </div>
         </div>
       </div>
-      <div className="mt-8 flex justify-end gap-3">
-        <button onClick={onClose} className="px-6 py-2 text-white hover:underline">Cancel</button>
+      <div className="mt-8 flex justify-end gap-4">
+        <button onClick={onClose} className="px-6 py-2 text-cyberse-muted hover:text-white transition-colors">Cancel</button>
         <button 
           onClick={handleCreate}
           disabled={!name.trim() || loading}
-          className="bg-discord-blurple text-white font-bold px-6 py-2 rounded hover:bg-opacity-90 transition-all disabled:opacity-50"
+          className="bg-cyberse-glow text-cyberse-bg font-bold px-8 py-2 rounded-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50 shadow-[0_0_15px_rgba(0,242,255,0.3)]"
         >
           {loading ? 'Creating...' : 'Create Channel'}
         </button>
@@ -1330,27 +1447,27 @@ function AddFriendModal({ isOpen, onClose, onSearch, searchResults, onAdd }: any
     <Modal isOpen={isOpen} onClose={onClose} title="Add Friend">
       {success ? (
         <div className="flex flex-col items-center justify-center py-10 text-center">
-          <div className="w-16 h-16 bg-discord-green rounded-full flex items-center justify-center mb-4 text-white">
-            <Check size={32} />
+          <div className="w-20 h-20 bg-cyberse-glow text-cyberse-bg rounded-3xl flex items-center justify-center mb-6 cyberse-hex shadow-[0_0_20px_rgba(0,242,255,0.4)]">
+            <Check size={40} />
           </div>
-          <h3 className="text-xl font-bold mb-2">Friend Request Sent!</h3>
-          <p className="text-discord-muted">We've sent a request to that user.</p>
+          <h3 className="text-2xl font-bold text-white mb-2">Friend Request Sent!</h3>
+          <p className="text-cyberse-muted">We've sent a request to that user.</p>
         </div>
       ) : (
         <>
-          <p className="text-discord-muted mb-6">You can add friends with their email address.</p>
-          <div className="relative mb-6">
+          <p className="text-cyberse-muted mb-6">You can add friends with their email address.</p>
+          <div className="relative mb-8">
             <input 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="Enter an email address"
-              className="w-full bg-discord-darkest p-3 rounded text-discord-text outline-none focus:ring-2 focus:ring-discord-blurple transition-all"
+              className="w-full bg-white/5 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-cyberse-glow focus:ring-1 focus:ring-cyberse-glow transition-all placeholder:text-white/20"
             />
             <button 
               onClick={handleSearch}
               disabled={loading || !email.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-discord-blurple text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-opacity-90 transition-all disabled:opacity-50"
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-cyberse-glow text-cyberse-bg px-5 py-2 rounded-lg text-sm font-bold hover:scale-105 active:scale-95 transition-all disabled:opacity-50 shadow-[0_0_10px_rgba(0,242,255,0.3)]"
             >
               {loading ? 'Searching...' : 'Search'}
             </button>
@@ -1358,25 +1475,25 @@ function AddFriendModal({ isOpen, onClose, onSearch, searchResults, onAdd }: any
           
           <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
             {searchResults.map((res: UserProfile) => (
-              <div key={res.uid} className="bg-discord-darkest p-3 rounded flex items-center justify-between group hover:bg-discord-darker transition-all">
+              <div key={res.uid} className="bg-cyberse-dark/40 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:bg-white/5 transition-all">
                 <div className="flex items-center gap-3">
-                  <img src={res.photoURL} className="w-10 h-10 rounded-full border-2 border-transparent group-hover:border-discord-blurple transition-all" referrerPolicy="no-referrer" />
+                  <img src={res.photoURL} className="w-10 h-10 rounded-xl border border-white/10 group-hover:border-cyberse-glow transition-all" referrerPolicy="no-referrer" />
                   <div>
-                    <p className="font-bold">{res.displayName}</p>
-                    <p className="text-xs text-discord-muted">{res.email}</p>
+                    <p className="font-bold text-white">{res.displayName}</p>
+                    <p className="text-xs text-cyberse-muted">{res.email}</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => handleAdd(res)}
                   disabled={loading}
-                  className="bg-discord-blurple p-2 rounded-full hover:bg-opacity-80 transition-all text-white shadow-lg disabled:opacity-50"
+                  className="bg-cyberse-glow p-2 rounded-lg hover:scale-110 transition-all text-cyberse-bg shadow-lg disabled:opacity-50"
                 >
                   <UserPlus size={20} />
                 </button>
               </div>
             ))}
             {searchResults.length === 0 && email && !loading && (
-              <p className="text-center py-4 text-discord-muted text-sm italic">No users found with that email.</p>
+              <p className="text-center py-4 text-cyberse-muted text-sm italic">No users found with that email.</p>
             )}
           </div>
         </>
@@ -1415,8 +1532,8 @@ function VideoParticipant({ participant, stream, isLocal }: any) {
   return (
     <div 
       className={cn(
-        "bg-discord-dark rounded-2xl flex flex-col items-center justify-center relative overflow-hidden aspect-video transition-all group",
-        isLocal ? "border-2 border-discord-blurple shadow-lg" : "border border-discord-darker hover:border-discord-muted"
+        "bg-cyberse-dark/60 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center relative overflow-hidden aspect-video transition-all group border",
+        isLocal ? "border-cyberse-glow shadow-[0_0_20px_rgba(0,242,255,0.2)]" : "border-white/5 hover:border-cyberse-glow/30"
       )}
     >
       {stream && hasVideo ? (
@@ -1430,20 +1547,20 @@ function VideoParticipant({ participant, stream, isLocal }: any) {
       ) : (
         <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
           <div className="relative">
-            <img src={participant.photoURL} className="w-24 h-24 rounded-full mb-4 shadow-2xl border-4 border-discord-darker" referrerPolicy="no-referrer" />
+            <img src={participant.photoURL} className="w-24 h-24 rounded-2xl mb-4 shadow-2xl border-2 border-white/10" referrerPolicy="no-referrer" />
             {!stream && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full">
-                <Loader2 className="text-white animate-spin" size={32} />
+              <div className="absolute inset-0 flex items-center justify-center bg-cyberse-bg/60 rounded-2xl backdrop-blur-sm">
+                <Loader2 className="text-cyberse-glow animate-spin" size={32} />
               </div>
             )}
           </div>
-          {!stream && <p className="text-xs text-discord-muted font-bold tracking-widest uppercase">Connecting...</p>}
-          {stream && !hasVideo && <p className="text-xs text-discord-muted font-bold tracking-widest uppercase">Video Off</p>}
+          {!stream && <p className="text-[10px] text-cyberse-muted font-bold tracking-[0.2em] uppercase">Connecting...</p>}
+          {stream && !hasVideo && <p className="text-[10px] text-cyberse-muted font-bold tracking-[0.2em] uppercase">Video Off</p>}
         </div>
       )}
-      <div className="absolute bottom-4 left-4 bg-black bg-opacity-60 backdrop-blur-md px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 border border-white border-opacity-10">
-        <div className={cn("w-2 h-2 rounded-full", stream ? "bg-discord-green" : "bg-discord-muted animate-pulse")} />
-        <span className="truncate max-w-[120px]">{participant.displayName} {isLocal && "(You)"}</span>
+      <div className="absolute bottom-4 left-4 bg-cyberse-bg/80 backdrop-blur-xl px-3 py-1.5 rounded-xl text-sm font-bold flex items-center gap-2 border border-white/10 shadow-xl">
+        <div className={cn("w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]", stream ? "bg-cyberse-glow text-cyberse-glow" : "bg-cyberse-muted text-cyberse-muted animate-pulse")} />
+        <span className="truncate max-w-[120px] text-white">{participant.displayName} {isLocal && "(You)"}</span>
       </div>
     </div>
   );
